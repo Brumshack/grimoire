@@ -1,0 +1,6 @@
+/* Phase 2 — placeholder print styles */
+@media print {
+  body { background: white; color: black; }
+  .topbar, .sheet__nav, .modal-root, .tooltip-root, .toast-root, .btn { display: none !important; }
+  .panel { border: 1px solid #999; box-shadow: none; background: white; color: black; }
+}

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#1a1a2e" />
+  <title>Grimoire &mdash; D&amp;D 5e Character Sheet</title>
+
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/reset.css" />
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/layout.css" />
+  <link rel="stylesheet" href="css/components.css" />
+  <link rel="stylesheet" href="css/sheet.css" />
+  <link rel="stylesheet" href="css/creator.css" />
+  <link rel="stylesheet" href="css/phase1.css" />
+  <link rel="stylesheet" href="css/print.css" media="print" />
+
+  <link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <div id="app" class="app-shell" aria-live="polite">
+    <div class="boot">
+      <div class="boot__mark">&#x2756;</div>
+      <div class="boot__title">Grimoire</div>
+      <div class="boot__sub">Loading your saga&hellip;</div>
+    </div>
+  </div>
+
+  <div id="modal-root" class="modal-root" aria-hidden="true"></div>
+  <div id="tooltip-root" class="tooltip-root" aria-hidden="true"></div>
+  <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="vendor/dexie.min.js"></script>
+  <script src="vendor/purify.min.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

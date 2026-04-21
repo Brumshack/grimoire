@@ -1,0 +1,72 @@
+:root {
+  --c-bg-0: #0f0f1a;
+  --c-bg-1: #16162a;
+  --c-bg-2: #1a1a2e;
+  --c-bg-3: #222240;
+  --c-panel: #16213e;
+  --c-panel-alt: #0f3460;
+  --c-border: #2a2a4a;
+  --c-border-strong: #3a3a5a;
+
+  --c-gold: #c9a84c;
+  --c-gold-bright: #e8c968;
+  --c-gold-dim: #8a7432;
+  --c-accent: var(--c-gold);
+
+  --c-text: #e8dcc8;
+  --c-text-dim: #a89c88;
+  --c-text-mute: #706858;
+  --c-text-inverse: #1a1a2e;
+
+  --c-hp-full: #4caf50;
+  --c-hp-mid:  #ffc107;
+  --c-hp-low:  #f44336;
+  --c-temp-hp: #7cc3ff;
+
+  --c-good: #4caf50;
+  --c-bad:  #f44336;
+  --c-warn: #ffc107;
+  --c-info: #7cc3ff;
+
+  --c-shadow: rgba(0, 0, 0, 0.55);
+  --c-overlay: rgba(8, 8, 16, 0.78);
+
+  --font-display: "Cinzel", "Trajan Pro", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  --font-body: "Rajdhani", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Fira Code", "Consolas", "Courier New", monospace;
+
+  --fs-xs: 0.72rem;
+  --fs-sm: 0.85rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.15rem;
+  --fs-xl: 1.4rem;
+  --fs-2xl: 1.8rem;
+  --fs-3xl: 2.4rem;
+
+  --sp-0: 0;
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-8: 3rem;
+
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 14px;
+  --r-pill: 999px;
+
+  --sh-panel: 0 6px 24px rgba(0,0,0,0.38), inset 0 0 0 1px rgba(201,168,76,0.08);
+  --sh-lift:  0 10px 32px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(201,168,76,0.18);
+  --sh-gold:  0 0 0 1px var(--c-gold), 0 0 12px rgba(201,168,76,0.28);
+
+  --tr-fast: 120ms ease-out;
+  --tr-med:  240ms ease-out;
+  --tr-slow: 420ms cubic-bezier(.2,.8,.2,1);
+
+  --bp-phone: 480px;
+  --bp-tab:   768px;
+  --bp-desk:  1024px;
+  --bp-wide:  1440px;
+}
