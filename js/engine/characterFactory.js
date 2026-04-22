@@ -105,6 +105,7 @@ export function blankCharacter(partial = {}) {
       saveDcOverride: null,
       attackOverride: null,
       abilityOverride: null,
+      slotMaxOverrides: {},
       statNotes: {},
       statSources: {},
       ...(partial.spellcasting || {})

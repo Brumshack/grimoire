@@ -317,6 +317,61 @@ function tabBtn(id, label, state, rerender, disabled = false) {
   }, label);
 }
 
+/* ─────────────────────── hit dice panel (shared) ──────────────────────── */
+
+function renderHitDicePanel(store) {
+  const d = store.derived;
+  const doc = store.doc;
+  return el("div", { class: "panel" },
+    el("div", { class: "panel__header" },
+      el("h3", {}, "Hit Dice"),
+      el("div", { style: { display: "flex", gap: "var(--sp-2)", alignItems: "center" } },
+        el("span", {
+          class: "hit-die-badge",
+          "data-override-path": "hitDie",
+          title: "Click to change die size"
+        }, `d${d.hitDie}${doc.combat.hitDieOverride != null ? " ✎" : ""}`),
+        el("button", {
+          class: "btn btn--sm",
+          title: "Reset all hit dice used",
+          onclick: () => store.update(x => { x.combat.hitDiceUsed = {}; })
+        }, "Long Rest")
+      )
+    ),
+    el("div", { class: "hit-dice" },
+      renderPips({
+        total: Math.max(1, d.totalLevel + (doc.combat.hitDiceExtra || 0)),
+        used: Object.values(doc.combat.hitDiceUsed || {}).reduce((s, n) => s + n, 0),
+        onChange: n => store.update(x => {
+          x.combat.hitDiceUsed = {};
+          if (n > 0) x.combat.hitDiceUsed[`d${d.hitDie}`] = n;
+        })
+      }),
+      el("div", { class: "hit-dice__controls" },
+        el("button", {
+          class: "btn btn--sm btn--ghost hit-dice__adjust",
+          title: "Remove a hit die",
+          onclick: () => store.update(x => {
+            const extra = x.combat.hitDiceExtra || 0;
+            const total = d.totalLevel + extra;
+            if (total > 1) x.combat.hitDiceExtra = extra - 1;
+          })
+        }, "−"),
+        el("span", { class: "hit-dice__total-label" },
+          `${Math.max(1, d.totalLevel + (doc.combat.hitDiceExtra || 0))} total`
+        ),
+        el("button", {
+          class: "btn btn--sm btn--ghost hit-dice__adjust",
+          title: "Add a hit die",
+          onclick: () => store.update(x => {
+            x.combat.hitDiceExtra = (x.combat.hitDiceExtra || 0) + 1;
+          })
+        }, "+")
+      )
+    )
+  );
+}
+
 /* ─────────────────────── overview ─────────────────────── */
 
 function renderOverviewTab(store) {
@@ -341,6 +396,7 @@ function renderOverviewTab(store) {
     // Right column
     el("div", { class: "col col--right" },
       renderHpBar(store),
+      renderHitDicePanel(store),
       renderCombatQuick(store),
       showSpellcasting ? renderSpellcastingQuick(store) : null
     )
@@ -523,54 +579,7 @@ function renderCombatTab(store) {
       ),
 
       /* ── Hit Dice ── */
-      el("div", { class: "panel" },
-        el("div", { class: "panel__header" },
-          el("h3", {}, "Hit Dice"),
-          el("div", { style: { display: "flex", gap: "var(--sp-2)", alignItems: "center" } },
-            el("span", {
-              class: "hit-die-badge",
-              "data-override-path": "hitDie",
-              title: "Click in Edit Stats mode to change die size"
-            }, `d${d.hitDie}${doc.combat.hitDieOverride != null ? " ✎" : ""}`),
-            el("button", {
-              class: "btn btn--sm",
-              title: "Reset all hit dice used",
-              onclick: () => store.update(x => { x.combat.hitDiceUsed = {}; })
-            }, "Long Rest")
-          )
-        ),
-        el("div", { class: "hit-dice" },
-          renderPips({
-            total: Math.max(1, d.totalLevel + (doc.combat.hitDiceExtra || 0)),
-            used: Object.values(doc.combat.hitDiceUsed || {}).reduce((s, n) => s + n, 0),
-            onChange: n => store.update(x => {
-              x.combat.hitDiceUsed = {};
-              if (n > 0) x.combat.hitDiceUsed[`d${d.hitDie}`] = n;
-            })
-          }),
-          el("div", { class: "hit-dice__controls" },
-            el("button", {
-              class: "btn btn--sm btn--ghost hit-dice__adjust",
-              title: "Remove a hit die",
-              onclick: () => store.update(x => {
-                const extra = x.combat.hitDiceExtra || 0;
-                const total = d.totalLevel + extra;
-                if (total > 1) x.combat.hitDiceExtra = extra - 1;
-              })
-            }, "−"),
-            el("span", { class: "hit-dice__total-label" },
-              `${Math.max(1, d.totalLevel + (doc.combat.hitDiceExtra || 0))} total`
-            ),
-            el("button", {
-              class: "btn btn--sm btn--ghost hit-dice__adjust",
-              title: "Add a hit die",
-              onclick: () => store.update(x => {
-                x.combat.hitDiceExtra = (x.combat.hitDiceExtra || 0) + 1;
-              })
-            }, "+")
-          )
-        )
-      )
+      renderHitDicePanel(store)
     ),
     el("div", { class: "col col--side" },
       renderCombatQuick(store),
@@ -815,7 +824,7 @@ function renderSpellsTab(store) {
   const hasCaster = !!cls?.spellcasting;
 
   const slots = d.slots;
-  const slotBar = slots ? renderSlotTracker(store, slots) : null;
+  const slotBar = renderSlotTracker(store, slots); // always shown; handles null gracefully
 
   // Build a map of level → spell objects, merging SRD "known" with custom spells.
   const known = new Set(doc.spellcasting.knownSpells || []);
@@ -964,9 +973,13 @@ function renderSpellRow(store, spell) {
 
 function renderSlotTracker(store, slots) {
   const doc = store.doc;
-  if (slots.kind === "pact") {
+
+  if (slots?.kind === "pact") {
     return el("div", { class: "panel" },
-      el("h3", {}, `Pact Slots (Level ${slots.slotLevel})`),
+      el("div", { class: "panel__header" },
+        el("h3", {}, `Pact Slots (Level ${slots.slotLevel})`),
+        el("button", { class: "btn btn--sm", onclick: () => openConfigureSlotsModal(store, slots) }, "Configure")
+      ),
       renderPips({
         total: slots.slots,
         used: doc.spellcasting.pactSlotsUsed || 0,
@@ -974,25 +987,82 @@ function renderSlotTracker(store, slots) {
       })
     );
   }
-  const rows = slots.perLevel.map((count, lvl) => {
-    if (!count || lvl === 0) return null;
-    const used = doc.spellcasting.slotsUsed?.[String(lvl)] || 0;
-    return el("div", { class: "slot-row" },
-      el("div", { class: "slot-row__label" }, `Level ${lvl}`),
-      renderPips({
-        total: count, used,
-        onChange: n => store.update(x => {
-          x.spellcasting.slotsUsed = x.spellcasting.slotsUsed || {};
-          x.spellcasting.slotsUsed[String(lvl)] = n;
-        })
+
+  // perLevel is 1-indexed: index 0 is unused, indices 1-9 are spell levels L1-L9.
+  // This indexing is set by computeSpellSlots in derive.js.
+  const rows = slots?.kind === "slots"
+    ? slots.perLevel.map((count, lvl) => {
+        if (!count || lvl === 0) return null; // index 0 unused; skip empty levels
+        const used = doc.spellcasting.slotsUsed?.[String(lvl)] || 0;
+        return el("div", { class: "slot-row" },
+          el("div", { class: "slot-row__label" }, `Level ${lvl}`),
+          renderPips({
+            total: count, used,
+            onChange: n => store.update(x => {
+              x.spellcasting.slotsUsed = x.spellcasting.slotsUsed || {};
+              x.spellcasting.slotsUsed[String(lvl)] = n;
+            })
+          })
+        );
+      }).filter(Boolean)
+    : [];
+
+  return el("div", { class: "panel" },
+    el("div", { class: "panel__header" },
+      el("h3", {}, "Spell Slots"),
+      el("button", { class: "btn btn--sm", onclick: () => openConfigureSlotsModal(store, slots) }, "Configure")
+    ),
+    rows.length > 0
+      ? el("div", {}, ...rows)
+      : el("p", { class: "muted" }, "No spell slots. Click Configure to set them manually.")
+  );
+}
+
+function openConfigureSlotsModal(store, currentSlots) {
+  const doc = store.doc;
+  const overrides = doc.spellcasting.slotMaxOverrides || {};
+
+  // Show the currently effective max for each level (override takes priority over class table)
+  const getEffective = (lvl) => {
+    if (overrides[String(lvl)] !== undefined) return overrides[String(lvl)];
+    if (currentSlots?.kind === "slots") return currentSlots.perLevel[lvl] || 0;
+    return 0;
+  };
+
+  const inputs = {};
+  const grid = el("div", { style: { display: "grid", gridTemplateColumns: "auto 80px", gap: "6px 12px", alignItems: "center", marginTop: "var(--sp-2)" } });
+
+  for (let lvl = 1; lvl <= 9; lvl++) {
+    const eff = getEffective(lvl);
+    grid.append(
+      el("div", { style: { fontSize: "var(--fs-sm)", fontWeight: "bold" } }, `Level ${lvl}`),
+      inputs[lvl] = el("input", {
+        type: "number", min: "0", max: "20", value: String(eff),
+        style: { padding: "4px 8px", background: "var(--c-bg-0)", border: "1px solid var(--c-border)", color: "var(--c-text)", borderRadius: "var(--r-sm)", fontFamily: "inherit", fontSize: "var(--fs-sm)", width: "100%" }
       })
     );
-  }).filter(Boolean);
-  if (rows.length === 0) return null;
-  return el("div", { class: "panel" },
-    el("h3", {}, "Spell Slots"),
-    ...rows
+  }
+
+  const body = el("div",
+    el("p", { class: "muted", style: { marginBottom: "var(--sp-2)" } },
+      "Set maximum slots per level. Your class table is shown by default; edit any level to override it."),
+    grid
   );
+
+  const saveBtn   = el("button", { class: "btn btn--primary" }, "Save");
+  const cancelBtn = el("button", { class: "btn btn--ghost" }, "Cancel");
+  const m = openModal({ title: "Configure Spell Slots", body, footer: [cancelBtn, saveBtn] });
+
+  cancelBtn.addEventListener("click", () => m.close());
+  saveBtn.addEventListener("click", () => {
+    const newOverrides = {};
+    for (let lvl = 1; lvl <= 9; lvl++) {
+      const v = parseInt(inputs[lvl].value, 10);
+      if (Number.isFinite(v) && v > 0) newOverrides[String(lvl)] = v;
+    }
+    store.update(x => { x.spellcasting.slotMaxOverrides = newOverrides; });
+    m.close();
+  });
 }
 
 /* ─────────────────────── inventory tab ─────────────────────── */

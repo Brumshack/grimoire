@@ -337,23 +337,44 @@ function computeAc(c, abilities, primaryClass) {
 }
 
 function computeSpellSlots(c) {
-  const primary = c.progression.classes[0];
-  if (!primary?.classId) return null;
-  const cls = CLASSES[primary.classId];
-  if (!cls?.spellcasting) return null;
-  const lv = Math.max(0, Math.min(20, primary.level));
+  const manualOverrides = c.spellcasting?.slotMaxOverrides || {};
+  const hasManual = Object.keys(manualOverrides).some(k => (manualOverrides[k] || 0) > 0);
 
-  if (cls.spellcasting.progression === "full") {
-    const row = FULL_CASTER_SLOTS[lv];
-    return { kind: "slots", perLevel: row.slice() };
+  const primary = c.progression.classes[0];
+
+  // Build 1-indexed perLevel (length 10): index 0 unused, index 1-9 = L1-L9 max slots.
+  // FULL/HALF caster tables are 0-indexed in the source arrays, so we prepend a 0.
+  let base = null; // null means no class progression
+
+  if (primary?.classId) {
+    const cls = CLASSES[primary.classId];
+    if (cls?.spellcasting) {
+      const lv = Math.max(0, Math.min(20, primary.level));
+      if (cls.spellcasting.progression === "full") {
+        const row = FULL_CASTER_SLOTS[lv]; // length 9, [L1..L9]
+        base = [0, ...row];                // length 10, 1-indexed
+      } else if (cls.spellcasting.progression === "half") {
+        const row = HALF_CASTER_SLOTS[lv]; // length 5, [L1..L5]
+        const padded = [...row, ...new Array(9 - row.length).fill(0)]; // pad to 9
+        base = [0, ...padded];
+      } else if (cls.spellcasting.progression === "pact") {
+        const pact = WARLOCK_SLOTS[lv];
+        return { kind: "pact", slots: pact?.slots || 0, slotLevel: pact?.slotLevel || 1 };
+      }
+    }
   }
-  if (cls.spellcasting.progression === "half") {
-    const row = HALF_CASTER_SLOTS[lv];
-    return { kind: "slots", perLevel: row.slice() };
+
+  // When no class progression but the user has set manual overrides, start from all-zero
+  if (!base && hasManual) {
+    base = new Array(10).fill(0);
   }
-  if (cls.spellcasting.progression === "pact") {
-    const pact = WARLOCK_SLOTS[lv];
-    return { kind: "pact", slots: pact?.slots || 0, slotLevel: pact?.slotLevel || 1 };
+  if (!base) return null;
+
+  // Apply manual overrides (keys "1"-"9")
+  for (const [k, v] of Object.entries(manualOverrides)) {
+    const lvl = parseInt(k, 10);
+    if (lvl >= 1 && lvl <= 9 && Number.isFinite(v) && v >= 0) base[lvl] = v;
   }
-  return null;
+
+  return { kind: "slots", perLevel: base };
 }
