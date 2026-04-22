@@ -1,6 +1,7 @@
 import { el } from "../../util/dom.js";
 import { ABILITY_KEYS, ABILITIES, abilityMod } from "../../data/rules.js";
 import { bindTooltip } from "./tooltip.js";
+import { buildTooltipHtml } from "./provenance.js";
 
 const fmtMod = (m) => (m >= 0 ? `+${m}` : `${m}`);
 
@@ -28,9 +29,12 @@ export function renderAbilityBlock(store) {
       el("div", { class: "ability__mod" }, fmtMod(a.mod)),
       el("div", { class: "ability__score" }, scoreInput)
     );
+    const abilNote   = store.doc.abilityScores.notes?.[k] || null;
+    const abilSource = store.doc.abilityScores.sources?.[k] || null;
+    const abilSummary = `Score: ${a.score}. Modifier: ${fmtMod(a.mod)}. Base ${a.base}, racial ${a.racial || 0}, ASI ${a.asi || 0}.`;
     bindTooltip(tile, {
       title: ABILITIES[k].full,
-      summary: `Score: ${a.score}. Modifier: ${fmtMod(a.mod)}. Base ${a.base}, racial ${a.racial || 0}, ASI ${a.asi || 0}.`,
+      html: buildTooltipHtml({ baseText: abilSummary, acquiredFrom: abilSource, userNotes: abilNote }),
       sourceRef: "PHB"
     });
     return tile;

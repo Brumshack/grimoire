@@ -188,16 +188,6 @@ function openOverrideFor(store, target) {
     return;
   }
 
-  // ── stat overrides with note/source support ──
-  const statNoteSave = (key) => note => store.update(x => {
-    x.combat.statNotes = x.combat.statNotes || {};
-    if (!note) delete x.combat.statNotes[key]; else x.combat.statNotes[key] = note;
-  });
-  const statSrcSave = (key) => src => store.update(x => {
-    x.combat.statSources = x.combat.statSources || {};
-    if (!src) delete x.combat.statSources[key]; else x.combat.statSources[key] = src;
-  });
-
   const defs = {
     ac:            { label: "AC Override",          type: "number", get: () => doc.combat.acOverride,            base: d.ac,            set: v => x => { x.combat.acOverride = v; },            noteKey: "ac" },
     initiative:    { label: "Initiative Override",  type: "number", get: () => doc.combat.initiativeOverride,    base: d.abilities.dex.mod + (doc.combat.initiativeBonus || 0), set: v => x => { x.combat.initiativeOverride = v; }, noteKey: "initiative" },
@@ -207,9 +197,9 @@ function openOverrideFor(store, target) {
     passivePerception:    { label: "Passive Perception",    type: "number", get: () => doc.combat.passiveOverrides?.perception,    base: 10 + d.skills.perception.modifier,    set: v => x => { x.combat.passiveOverrides = x.combat.passiveOverrides || {}; x.combat.passiveOverrides.perception = v; },    noteKey: "passivePerception" },
     passiveInvestigation: { label: "Passive Investigation", type: "number", get: () => doc.combat.passiveOverrides?.investigation, base: 10 + d.skills.investigation.modifier, set: v => x => { x.combat.passiveOverrides = x.combat.passiveOverrides || {}; x.combat.passiveOverrides.investigation = v; }, noteKey: "passiveInvestigation" },
     passiveInsight:       { label: "Passive Insight",       type: "number", get: () => doc.combat.passiveOverrides?.insight,       base: 10 + d.skills.insight.modifier,       set: v => x => { x.combat.passiveOverrides = x.combat.passiveOverrides || {}; x.combat.passiveOverrides.insight = v; },       noteKey: "passiveInsight" },
-    spellSaveDC:   { label: "Spell Save DC",        type: "number", get: () => doc.spellcasting.saveDcOverride,  base: d.spellSaveDC,   set: v => x => { x.spellcasting.saveDcOverride = v; } },
-    spellAttack:   { label: "Spell Attack",         type: "number", get: () => doc.spellcasting.attackOverride,  base: d.spellAttack,   set: v => x => { x.spellcasting.attackOverride = v; } },
-    spellAbility:  { label: "Spellcasting Ability", type: "ability", get: () => doc.spellcasting.abilityOverride, base: d.primaryClass?.spellcasting?.ability || "—", set: v => x => { x.spellcasting.abilityOverride = v || null; } }
+    spellSaveDC:   { label: "Spell Save DC",        type: "number", get: () => doc.spellcasting.saveDcOverride,  base: d.spellSaveDC,   set: v => x => { x.spellcasting.saveDcOverride = v; }, noteKey: "spellSaveDC",  noteBucket: "spellcasting" },
+    spellAttack:   { label: "Spell Attack",         type: "number", get: () => doc.spellcasting.attackOverride,  base: d.spellAttack,   set: v => x => { x.spellcasting.attackOverride = v; }, noteKey: "spellAttack",  noteBucket: "spellcasting" },
+    spellAbility:  { label: "Spellcasting Ability", type: "ability", get: () => doc.spellcasting.abilityOverride, base: d.primaryClass?.spellcasting?.ability || "—", set: v => x => { x.spellcasting.abilityOverride = v || null; }, noteKey: "spellAbility", noteBucket: "spellcasting" }
   };
 
   // ability score override: abilityScores.str etc.
@@ -224,6 +214,16 @@ function openOverrideFor(store, target) {
         x.abilityScores.override = x.abilityScores.override || {};
         if (v == null) delete x.abilityScores.override[k];
         else x.abilityScores.override[k] = v;
+      }),
+      currentNote:   doc.abilityScores.notes?.[k],
+      onSaveNote:    note => store.update(x => {
+        x.abilityScores.notes = x.abilityScores.notes || {};
+        if (!note) delete x.abilityScores.notes[k]; else x.abilityScores.notes[k] = note;
+      }),
+      currentSource: doc.abilityScores.sources?.[k],
+      onSaveSource:  src => store.update(x => {
+        x.abilityScores.sources = x.abilityScores.sources || {};
+        if (!src) delete x.abilityScores.sources[k]; else x.abilityScores.sources[k] = src;
       })
     });
     return;
@@ -287,15 +287,22 @@ function openOverrideFor(store, target) {
 
   const def = defs[path];
   if (!def) return;
+  const nBucket = def.noteBucket || "combat";
   openOverridePopover({
     anchorEl: target, label: def.label, type: def.type,
     currentValue: def.get(), baseHint: def.base,
     onSave: v => store.update(def.set(v)),
     ...(def.noteKey ? {
-      currentNote:   doc.combat.statNotes?.[def.noteKey],
-      onSaveNote:    statNoteSave(def.noteKey),
-      currentSource: doc.combat.statSources?.[def.noteKey],
-      onSaveSource:  statSrcSave(def.noteKey)
+      currentNote:   doc[nBucket].statNotes?.[def.noteKey],
+      onSaveNote:    note => store.update(x => {
+        x[nBucket].statNotes = x[nBucket].statNotes || {};
+        if (!note) delete x[nBucket].statNotes[def.noteKey]; else x[nBucket].statNotes[def.noteKey] = note;
+      }),
+      currentSource: doc[nBucket].statSources?.[def.noteKey],
+      onSaveSource:  src => store.update(x => {
+        x[nBucket].statSources = x[nBucket].statSources || {};
+        if (!src) delete x[nBucket].statSources[def.noteKey]; else x[nBucket].statSources[def.noteKey] = src;
+      })
     } : {})
   });
 }
@@ -408,21 +415,31 @@ function renderSpellcastingQuick(store) {
   const d = store.derived;
   const doc = store.doc;
   const sc = doc.spellcasting || {};
+  const sn = sc.statNotes   || {};
+  const ss = sc.statSources || {};
+
+  const spPair = (label, value, overridePath, isOverridden, tipTitle, tipSummary, noteKey) => {
+    const r = el("div", {
+      class: "stat-pair",
+      "data-override-path": overridePath,
+      "data-overridden": isOverridden ? "true" : null
+    },
+      el("div", { class: "stat-pair__label" }, label),
+      el("div", { class: "stat-pair__value" }, value)
+    );
+    bindTooltip(r, {
+      title: tipTitle,
+      html: buildTooltipHtml({ baseText: tipSummary, acquiredFrom: ss[noteKey] || null, userNotes: sn[noteKey] || null })
+    });
+    return r;
+  };
+
   return el("div", { class: "panel panel--spellcasting" },
     el("h3", {}, "Spellcasting"),
     el("div", { class: "stat-pair-grid" },
-      el("div", { class: "stat-pair", "data-override-path": "spellAbility", "data-overridden": sc.abilityOverride ? "true" : null },
-        el("div", { class: "stat-pair__label" }, "Ability"),
-        el("div", { class: "stat-pair__value" }, d.spellAbility?.toUpperCase() || "—")
-      ),
-      el("div", { class: "stat-pair", "data-override-path": "spellSaveDC", "data-overridden": sc.saveDcOverride != null ? "true" : null },
-        el("div", { class: "stat-pair__label" }, "Save DC"),
-        el("div", { class: "stat-pair__value" }, d.spellSaveDC ?? "—")
-      ),
-      el("div", { class: "stat-pair", "data-override-path": "spellAttack", "data-overridden": sc.attackOverride != null ? "true" : null },
-        el("div", { class: "stat-pair__label" }, "Attack"),
-        el("div", { class: "stat-pair__value" }, fmt(d.spellAttack))
-      ),
+      spPair("Ability",  d.spellAbility?.toUpperCase() || "—", "spellAbility", !!sc.abilityOverride,       "Spellcasting Ability", "The ability used for spell attacks and save DCs.",    "spellAbility"),
+      spPair("Save DC",  d.spellSaveDC ?? "—",                 "spellSaveDC",  sc.saveDcOverride != null,  "Spell Save DC",        "DC that enemies must beat to resist your spells.",    "spellSaveDC"),
+      spPair("Attack",   fmt(d.spellAttack),                   "spellAttack",  sc.attackOverride != null,  "Spell Attack Bonus",   "Bonus added to your spell attack rolls.",             "spellAttack"),
     )
   );
 }
@@ -599,7 +616,7 @@ function weaponAbility(base, d) {
 }
 
 function renderAttackRow(store, d, kind, opts) {
-  let name, atkBonus, dmgStr, range, properties, notes, isEdited;
+  let name, atkBonus, dmgStr, range, properties, notes, acquiredFrom, isEdited;
 
   if (kind === "equipped") {
     const { instance, base, override } = opts;
@@ -614,6 +631,7 @@ function renderAttackRow(store, d, kind, opts) {
     range = merged.range || "melee";
     properties = (merged.properties || []).join(", ");
     notes = override?.notes || "";
+    acquiredFrom = opts.instance.source || "";
   } else {
     const { atk } = opts;
     isEdited = false;
@@ -625,6 +643,7 @@ function renderAttackRow(store, d, kind, opts) {
     range = atk.range || "melee";
     properties = (atk.properties || []).join(", ");
     notes = atk.notes || "";
+    acquiredFrom = atk._acquiredFrom || "";
   }
 
   // Actions column: edit + remove/revert (edit-mode only)
@@ -714,7 +733,7 @@ function renderAttackRow(store, d, kind, opts) {
   if (properties) tipLines.push(`Properties: ${properties}`);
   bindTooltip(row, {
     title: name,
-    html: buildTooltipHtml({ baseText: tipLines.join(" · "), userNotes: notes })
+    html: buildTooltipHtml({ baseText: tipLines.join(" · "), acquiredFrom, userNotes: notes })
   });
 
   return row;
@@ -916,8 +935,8 @@ function renderSpellRow(store, spell) {
         }, "Remove")
   );
   const sc = store.doc.spellcasting || {};
-  const spellNote = sc.spellNotes?.[spell.id] || "";
-  const spellSource = sc.spellSources?.[spell.id] || spell.source || "";
+  const spellNote   = sc.spellNotes?.[spell.id]   || spell._userNotes   || "";
+  const spellSource = sc.spellSources?.[spell.id] || spell._acquiredFrom || spell.source || "";
   const baseSummary = (spell.description || "").slice(0, 160) + ((spell.description?.length || 0) > 160 ? "…" : "");
 
   // Build component string: V, S, M (material)
@@ -1108,9 +1127,11 @@ function renderInvItem(store, it) {
   const itemSummary = base.type === "weapon" ? `${base.damage} ${base.damageType}` :
                       base.type === "armor"  ? `AC ${base.ac} (${base.armorType})` :
                       (base.description || "Adventuring gear");
+  const invAcquiredFrom = it.source || (isCustom ? (it.custom?._acquiredFrom || "") : "");
+  const invUserNotes    = it.notes  || (isCustom ? (it.custom?._userNotes    || "") : "");
   bindTooltip(row, {
     title: base.name,
-    html: buildTooltipHtml({ baseText: itemSummary, acquiredFrom: it.source, userNotes: it.notes }),
+    html: buildTooltipHtml({ baseText: itemSummary, acquiredFrom: invAcquiredFrom, userNotes: invUserNotes }),
     sourceRef: isCustom ? "Homebrew" : "SRD",
     onMore: () => openItemDetail(base, { store, instanceId: it.instanceId })
   });

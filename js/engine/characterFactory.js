@@ -39,6 +39,8 @@ export function blankCharacter(partial = {}) {
       base: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
       asiBonuses: { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 },
       override: {},
+      notes: {},
+      sources: {},
       ...(partial.abilityScores || {})
     },
 
@@ -103,6 +105,8 @@ export function blankCharacter(partial = {}) {
       saveDcOverride: null,
       attackOverride: null,
       abilityOverride: null,
+      statNotes: {},
+      statSources: {},
       ...(partial.spellcasting || {})
     },
 

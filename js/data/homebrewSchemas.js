@@ -208,18 +208,20 @@ export const ATTACK_SCHEMA = {
     { key: "damageType", label: "Damage Type",            type: "text",   placeholder: "slashing" },
     { key: "range",      label: "Range",                  type: "text",   placeholder: "5 ft. (melee)" },
     { key: "properties", label: "Properties (comma-sep)", type: "text",   placeholder: "finesse, light, thrown…" },
-    { key: "notes",      label: "Notes",                  type: "textarea", rows: 3, placeholder: "Flavor, special rules…" }
+    { key: "notes",       label: "Notes",                        type: "textarea", rows: 3, placeholder: "Flavor, special rules…" },
+    { key: "_acquiredFrom", label: "Acquired From / Source",     type: "text",     placeholder: "Quest reward, DM granted, magic item…" }
   ],
   assemble(v) {
     return {
       id: v.id,
-      name:       (v.name || "").trim(),
-      atkAbility: v.atkAbility || "str",
-      damage:     v.damage || "1d4",
-      damageType: v.damageType || "",
-      range:      v.range || "",
-      properties: (v.properties || "").split(",").map(s => s.trim()).filter(Boolean),
-      notes:      v.notes || ""
+      name:         (v.name || "").trim(),
+      atkAbility:   v.atkAbility || "str",
+      damage:       v.damage || "1d4",
+      damageType:   v.damageType || "",
+      range:        v.range || "",
+      properties:   (v.properties || "").split(",").map(s => s.trim()).filter(Boolean),
+      notes:        v.notes || "",
+      _acquiredFrom: v._acquiredFrom || ""
     };
   },
   disassemble(r) {
