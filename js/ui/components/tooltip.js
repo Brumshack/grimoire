@@ -1,5 +1,5 @@
 import { el, mount } from "../../util/dom.js";
-import { sanitizeHtml } from "../../util/sanitize.js";
+import { sanitizeHtml, escapeText } from "../../util/sanitize.js";
 
 const HOVER_DELAY = 300;
 const LONGPRESS_DELAY = 500;
@@ -60,7 +60,12 @@ function showTooltip(anchor, data, { touch = false } = {}) {
   const root = document.getElementById("tooltip-root");
   if (!root) return;
 
-  const bodyHtml = data.html ? sanitizeHtml(data.html) : sanitizeHtml(data.summary || "");
+  // data.html comes from buildTooltipHtml which already escapes all user
+  // content — set it directly so tags like <b> and <br> render correctly
+  // even when DOMPurify is not loaded. Plain-text summary is escaped inline.
+  const bodyHtml = data.html
+    ? (window.DOMPurify ? sanitizeHtml(data.html) : data.html)
+    : escapeText(data.summary || "");
   const tip = el("div", { class: "tooltip" + (touch ? " tooltip--touch" : ""), role: "tooltip" });
   if (data.title) tip.append(el("div", { class: "tooltip__title" }, data.title));
   if (bodyHtml) {
