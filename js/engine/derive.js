@@ -20,7 +20,7 @@ export function deriveAll(c) {
   const primarySubclass = primary.classId && primary.subclassId ? resolveSubclass(primary.classId, primary.subclassId) : null;
 
   const totalLevel = c.progression.classes.reduce((s, cl) => s + (cl.level || 0), 0) || 1;
-  const profBonus = proficiencyBonus(totalLevel);
+  const profBonus = pickOverride(c.combat?.profBonusOverride, proficiencyBonus(totalLevel));
 
   // Ability scores: base + racial + ASI + override
   const abilities = {};
@@ -46,31 +46,69 @@ export function deriveAll(c) {
   const skills = {};
   for (const id of SKILL_IDS) {
     const ability = SKILLS[id].ability;
+    const sources = [];
     let level = "none";
-    if (c.proficiencies.skills?.[id] === "proficient") level = "proficient";
-    if (c.proficiencies.skills?.[id] === "expertise") level = "expertise";
-    // background/race/class granted (derived)
+
+    const manualLevel = c.proficiencies.skills?.[id];
     const grantedFromBackground = background?.skills?.includes(id);
     const grantedFromRace = (resolvedRace?.proficiencies?.skills || []).includes(id);
-    if (level === "none" && (grantedFromBackground || grantedFromRace)) level = "proficient";
+
+    if (grantedFromBackground) {
+      level = "proficient";
+      sources.push({ kind: "background", label: `Background — ${background.name}` });
+    }
+    if (grantedFromRace) {
+      if (level === "none") level = "proficient";
+      sources.push({ kind: "race", label: `Race — ${resolvedRace.fullName}` });
+    }
+    if (manualLevel === "proficient") {
+      if (level === "none") level = "proficient";
+      if (!grantedFromBackground && !grantedFromRace) {
+        sources.push({ kind: "manual", label: "Class skill choice or manual" });
+      }
+    } else if (manualLevel === "expertise") {
+      level = "expertise";
+      sources.push({ kind: "expertise", label: "Expertise (2× proficiency bonus)" });
+    }
+
     const multiplier = level === "expertise" ? 2 : level === "proficient" ? 1 : 0;
+    const baseMod = abilities[ability].mod + profBonus * multiplier;
+    const skillOverride = c.proficiencies?.skillOverrides?.[id];
+    if (skillOverride != null) {
+      sources.push({ kind: "override", label: `Manual override: ${skillOverride >= 0 ? "+" : ""}${skillOverride}` });
+    }
+
     skills[id] = {
       id,
       name: SKILLS[id].name,
       ability,
       level,
-      modifier: abilities[ability].mod + profBonus * multiplier
+      modifier: pickOverride(skillOverride, baseMod),
+      overridden: skillOverride != null,
+      sources
     };
   }
 
   // Saves
   const saves = {};
   for (const k of ABILITY_KEYS) {
+    const sources = [];
     const prof = savingThrows.has(k);
+    const fromClass = (primaryClass?.savingThrows || []).includes(k);
+    const fromExtra = (c.proficiencies.savingThrowsExtra || []).includes(k);
+    if (fromClass) sources.push({ kind: "class", label: `${primaryClass.name} class` });
+    if (fromExtra) sources.push({ kind: "manual", label: "Added manually" });
+    const baseSave = abilities[k].mod + (prof ? profBonus : 0);
+    const saveOverride = c.proficiencies?.saveOverrides?.[k];
+    if (saveOverride != null) {
+      sources.push({ kind: "override", label: `Manual override: ${saveOverride >= 0 ? "+" : ""}${saveOverride}` });
+    }
     saves[k] = {
       ability: k,
       proficient: prof,
-      modifier: abilities[k].mod + (prof ? profBonus : 0)
+      modifier: pickOverride(saveOverride, baseSave),
+      overridden: saveOverride != null,
+      sources
     };
   }
 
@@ -79,29 +117,36 @@ export function deriveAll(c) {
 
   // Speed
   const raceSpeed = resolvedRace?.speed ?? 30;
-  const speed = raceSpeed + (c.combat.speedBonus || 0);
+  const speed = pickOverride(c.combat?.speedOverride, raceSpeed + (c.combat.speedBonus || 0));
 
   // HP level-up source HP (for display; actual maxHp is persisted)
-  const hitDie = primaryClass?.hitDie || 8;
+  const hitDie = pickOverride(c.combat?.hitDieOverride, primaryClass?.hitDie || 8);
 
   // Spell slots
   const slots = computeSpellSlots(c);
 
   // Passive stats
-  const passivePerception = 10 + skills.perception.modifier;
-  const passiveInvestigation = 10 + skills.investigation.modifier;
-  const passiveInsight = 10 + skills.insight.modifier;
+  const po = c.combat?.passiveOverrides || {};
+  const passivePerception = pickOverride(po.perception, 10 + skills.perception.modifier);
+  const passiveInvestigation = pickOverride(po.investigation, 10 + skills.investigation.modifier);
+  const passiveInsight = pickOverride(po.insight, 10 + skills.insight.modifier);
 
   // Initiative
-  const initiative = abilities.dex.mod + (c.combat.initiativeBonus || 0);
+  const initiative = pickOverride(c.combat?.initiativeOverride, abilities.dex.mod + (c.combat.initiativeBonus || 0));
 
   // Spellcasting ability/DC/attack
   let spellAbility = null, spellSaveDC = null, spellAttack = null;
-  if (primaryClass?.spellcasting) {
-    spellAbility = primaryClass.spellcasting.ability;
+  const scOverrideAbility = c.spellcasting?.abilityOverride;
+  const classCastingAbility = primaryClass?.spellcasting?.ability || null;
+  spellAbility = scOverrideAbility || classCastingAbility;
+  if (spellAbility) {
     const mod = abilities[spellAbility].mod;
-    spellSaveDC = 8 + profBonus + mod;
-    spellAttack = profBonus + mod;
+    spellSaveDC = pickOverride(c.spellcasting?.saveDcOverride, 8 + profBonus + mod);
+    spellAttack = pickOverride(c.spellcasting?.attackOverride, profBonus + mod);
+  } else {
+    // even without a casting class, allow manual overrides
+    spellSaveDC = c.spellcasting?.saveDcOverride ?? null;
+    spellAttack = c.spellcasting?.attackOverride ?? null;
   }
 
   // Carry
@@ -113,47 +158,93 @@ export function deriveAll(c) {
   }, 0);
 
   // Features list (class + subclass + race traits + background feature)
+  const notes = c.features?.notes || {};
+  const featureOverrides = c.features?.overrides || {};
   const features = [];
+
+  const pushFeature = (base, id, kind) => {
+    const ov = featureOverrides[id] || {};
+    features.push({
+      ...base,
+      // user-editable fields can be overridden
+      name:   ov.name   !== undefined ? ov.name   : (base.name   || ""),
+      desc:   ov.desc   !== undefined ? ov.desc   : (base.desc   || ""),
+      source: ov.source !== undefined ? ov.source : (base.source || ""),
+      level:  ov.level  !== undefined ? ov.level  : (base.level  ?? 1),
+      // protected fields
+      id, kind,
+      userNotes: notes[id] || "",
+      isEdited: Object.keys(ov).length > 0
+    });
+  };
+
   if (primaryClass) {
     for (const f of classFeaturesUpToLevel(primary.classId, primary.subclassId, primary.level)) {
-      features.push({ ...f, kind: "class" });
+      const id = `class:${primary.classId}:${slug(f.name)}`;
+      pushFeature({ ...f, source: f.source || `${primaryClass.name} (Class)` }, id, "class");
     }
   }
   if (resolvedRace) {
     for (const t of resolvedRace.traits) {
-      features.push({ name: t.name, desc: t.desc, source: `${resolvedRace.fullName} (Race)`, level: 1, kind: "race" });
+      const id = `race:${c.race.raceId}${c.race.subraceId ? ":" + c.race.subraceId : ""}:${slug(t.name)}`;
+      pushFeature({ name: t.name, desc: t.desc, source: `${resolvedRace.fullName} (Race)`, level: 1 }, id, "race");
     }
   }
   if (background) {
-    features.push({
-      name: background.feature.name,
-      desc: background.feature.desc,
-      source: `${background.name} (Background)`,
-      level: 1,
-      kind: "background"
-    });
+    const id = `bg:${c.background.backgroundId}:${slug(background.feature.name)}`;
+    pushFeature({ name: background.feature.name, desc: background.feature.desc, source: `${background.name} (Background)`, level: 1 }, id, "background");
+  }
+  for (const f of c.features?.custom || []) {
+    pushFeature({ name: f.name || "Custom Feature", desc: f.desc || "", source: f.source || "Homebrew", level: f.level ?? 1 }, f.id, "custom");
   }
 
-  // Languages aggregation
-  const languages = new Set(c.proficiencies.languages || []);
-  (resolvedRace?.languages || []).forEach(l => languages.add(l));
-  // (background grants N of choice — player picks manually)
+  // Meta buckets — user-supplied source labels and notes for manual entries
+  const langMeta    = c.proficiencies.langMeta    || {};
+  const armorMeta   = c.proficiencies.armorMeta   || {};
+  const weaponMeta  = c.proficiencies.weaponMeta  || {};
+  const toolMeta    = c.proficiencies.toolMeta    || {};
 
-  // Auto-proficiencies
-  const armorProf = new Set([
-    ...(primaryClass?.proficiencies?.armor || []),
-    ...(c.proficiencies.armor || [])
-  ]);
-  const weaponProf = new Set([
-    ...(primaryClass?.proficiencies?.weapons || []),
-    ...((resolvedRace?.proficiencies?.weapons) || []),
-    ...(c.proficiencies.weapons || [])
-  ]);
-  const toolProf = new Set([
-    ...(primaryClass?.proficiencies?.tools || []),
-    ...((resolvedRace?.proficiencies?.tools) || []),
-    ...(c.proficiencies.tools || [])
-  ]);
+  // Languages aggregation with provenance
+  const languageDetails = {};
+  (resolvedRace?.languages || []).forEach(l => {
+    languageDetails[l] = { name: l, source: `Race — ${resolvedRace.fullName}`, removable: false, notes: "" };
+  });
+  (c.proficiencies.languages || []).forEach(l => {
+    const meta = langMeta[l] || {};
+    if (!languageDetails[l]) {
+      languageDetails[l] = { name: l, source: meta.source || "Added manually", removable: true, notes: meta.notes || "" };
+    }
+  });
+  const languages = Object.keys(languageDetails);
+
+  // Auto-proficiencies with provenance
+  const armorDetails = buildProficiencyDetails({
+    class: primaryClass?.proficiencies?.armor,
+    manual: c.proficiencies.armor,
+    className: primaryClass?.name,
+    raceName: resolvedRace?.fullName,
+    race: resolvedRace?.proficiencies?.armor,
+    meta: armorMeta
+  });
+  const weaponDetails = buildProficiencyDetails({
+    class: primaryClass?.proficiencies?.weapons,
+    manual: c.proficiencies.weapons,
+    className: primaryClass?.name,
+    raceName: resolvedRace?.fullName,
+    race: resolvedRace?.proficiencies?.weapons,
+    meta: weaponMeta
+  });
+  const toolDetails = buildProficiencyDetails({
+    class: primaryClass?.proficiencies?.tools,
+    manual: c.proficiencies.tools,
+    className: primaryClass?.name,
+    raceName: resolvedRace?.fullName,
+    race: resolvedRace?.proficiencies?.tools,
+    meta: toolMeta
+  });
+  const armorProf = new Set(Object.keys(armorDetails));
+  const weaponProf = new Set(Object.keys(weaponDetails));
+  const toolProf = new Set(Object.keys(toolDetails));
 
   return {
     totalLevel,
@@ -178,9 +269,38 @@ export function deriveAll(c) {
     armorProficiencies: [...armorProf],
     weaponProficiencies: [...weaponProf],
     toolProficiencies: [...toolProf],
+    languageDetails,
+    armorProficiencyDetails: armorDetails,
+    weaponProficiencyDetails: weaponDetails,
+    toolProficiencyDetails: toolDetails,
     resolvedRace,
     primaryClass, primarySubclass
   };
+}
+
+function slug(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
+
+function buildProficiencyDetails({ class: classList, manual, race, className, raceName, meta = {} }) {
+  const out = {};
+  (classList || []).forEach(name => {
+    out[name] = { name, source: `Class — ${className || "class"}`, removable: false, notes: "" };
+  });
+  (race || []).forEach(name => {
+    if (!out[name]) out[name] = { name, source: `Race — ${raceName || "race"}`, removable: false, notes: "" };
+  });
+  (manual || []).forEach(name => {
+    if (!out[name]) {
+      const m = meta[name] || {};
+      out[name] = { name, source: m.source || "Added manually", removable: true, notes: m.notes || "" };
+    }
+  });
+  return out;
+}
+
+/** Return override when set (non-null, non-undefined, not ""); otherwise fallback. */
+function pickOverride(override, fallback) {
+  if (override === null || override === undefined || override === "") return fallback;
+  return override;
 }
 
 function computeAc(c, abilities, primaryClass) {

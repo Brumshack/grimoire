@@ -1,6 +1,6 @@
 import { uuid } from "../util/id.js";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 3;
 
 export function blankCharacter(partial = {}) {
   const now = new Date().toISOString();
@@ -50,6 +50,8 @@ export function blankCharacter(partial = {}) {
       weapons: [],
       tools: [],
       languages: [],
+      skillOverrides: {},
+      saveOverrides: {},
       ...(partial.proficiencies || {})
     },
 
@@ -66,7 +68,16 @@ export function blankCharacter(partial = {}) {
       speedBonus: 0,
       actionEconomy: { action: false, bonusAction: false, reaction: false },
       acOverride: null,
+      initiativeOverride: null,
       initiativeBonus: 0,
+      speedOverride: null,
+      profBonusOverride: null,
+      hitDieOverride: null,
+      passiveOverrides: { perception: null, investigation: null, insight: null },
+      customAttacks: [],
+      attackOverrides: {},
+      customActions: [],
+      hitDiceExtra: 0,
       ...(partial.combat || {})
     },
 
@@ -83,6 +94,9 @@ export function blankCharacter(partial = {}) {
       preparedSpells: [],
       spellbook: [],
       custom: [],
+      saveDcOverride: null,
+      attackOverride: null,
+      abilityOverride: null,
       ...(partial.spellcasting || {})
     },
 
@@ -90,6 +104,7 @@ export function blankCharacter(partial = {}) {
       featIds: [],
       disabledFeatureIds: [],
       notes: {},
+      custom: [],
       ...(partial.features || {})
     },
 

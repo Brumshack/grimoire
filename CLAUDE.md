@@ -20,8 +20,12 @@ curl -L https://unpkg.com/dompurify@3/dist/purify.min.js -o vendor/purify.min.js
 
 Syntax-check all JS without a browser:
 ```bash
+node --check js/path/to/file.js
+# or check everything at once:
 find js -name "*.js" -exec node --check {} \;
 ```
+
+---
 
 ## Architecture
 
@@ -44,36 +48,226 @@ UI components render from { store.doc, store.derived }
 - **Derived stats are never persisted.** AC, skill modifiers, spell DC, etc. are always recomputed by `deriveAll()` from the raw document. Only the raw character JSON is saved.
 - **SRD 5.1 only** (OGL 1.0a). All rule data is hand-authored static ES modules under `js/data/`. No API calls, no fetch at runtime.
 - **One subclass per class** in the data — the only subclass included for each class is the one published in the SRD.
-- **Schema versioning**: every character doc has `schemaVersion`. Bumping it requires adding a migration in `js/engine/migrations.js`.
+- **Schema versioning**: every character doc has `schemaVersion` (currently **3**). Bumping it requires:
+  1. Incrementing `SCHEMA_VERSION` in `js/engine/characterFactory.js`
+  2. Adding a migration function keyed by the *old* version in `js/engine/migrations.js`
+  3. Adding new fields with defaults to `blankCharacter()` in `characterFactory.js`
 
-### Module map
+---
+
+## Module map
 
 | Path | Purpose |
 |---|---|
 | `js/data/` | Static SRD data (spells, classes, races, equipment, rules). Read-only at runtime. |
+| `js/data/homebrewSchemas.js` | `SPELL_SCHEMA`, `ITEM_SCHEMA`, `FEATURE_SCHEMA`, `ATTACK_SCHEMA` — declarative field definitions + `assemble()`/`disassemble()` for the homebrew form builder. |
 | `js/engine/derive.js` | `deriveAll(doc)` — single pure function, the calculation engine. |
 | `js/engine/store.js` | `CharacterStore extends Emitter` — observable wrapper around a character doc. |
 | `js/engine/characterFactory.js` | `blankCharacter(partial)` — canonical empty doc shape + `SCHEMA_VERSION`. |
+| `js/engine/migrations.js` | Schema version migrations (v1→v2→v3). |
 | `js/storage/idbStore.js` | IndexedDB via Dexie; falls back to localStorage if Dexie is unavailable. |
 | `js/storage/localStore.js` | `localStorage` roster index (id, name, class, level, hp — summary only). |
 | `js/ui/router.js` | Hash-based router. Routes: `#/roster`, `#/creator`, `#/sheet/:id`. |
+| `js/ui/screens/sheet.js` | Main character sheet — all 6 tabs. Very large file; all tab renders live here. |
 | `js/ui/screens/` | Full-page screens: `roster.js`, `creator.js`, `sheet.js`. |
-| `js/ui/components/` | Reusable components. All take `store` (CharacterStore) as first arg. |
+| `js/ui/components/homebrewForm.js` | `openHomebrewForm({ schema, initial?, onSave })` — generic modal form builder driven by a schema object. |
+| `js/ui/components/detailModals.js` | `openSpellDetail`, `openItemDetail`, `openFeatureDetail` — click-to-view modals with source/notes editors and edit/revert buttons. |
+| `js/ui/components/overridePopover.js` | `openOverridePopover(opts)` — floating popover for stat overrides, anchored to a DOM element. |
+| `js/ui/components/provenance.js` | `buildTooltipHtml({ baseText, sources, acquiredFrom, userNotes })` — central tooltip HTML builder. `buildSourceHtml(baseText, sources)` is a backwards-compat alias. |
+| `js/ui/components/tooltip.js` | `bindTooltip(el, opts)` — attaches hover (desktop) and long-press (touch) tooltip to an element. |
+| `js/ui/components/` | All other reusable components. Most take `store` (CharacterStore) as first arg. |
 | `js/util/dom.js` | `el(tag, attrs, ...children)` — the only DOM builder used throughout. |
+| `js/util/id.js` | `uuid()` — generates a v4-style UUID. |
 
-### Storage split
+---
+
+## Character document schema (v3)
+
+```
+{
+  schemaVersion: 3,
+  id, createdAt, updatedAt,
+
+  identity:    { name, playerName, alignment, age, height, weight, eyes, hair, skin, gender, portraitDataUrl },
+  progression: { classes: [{ classId, subclassId, level, hitDieRolls }], xp, inspiration },
+  race:        { raceId, subraceId },
+  background:  { backgroundId },
+
+  abilityScores: {
+    base:      { str, dex, con, int, wis, cha },   // set in character creator
+    asiBonuses:{ str, dex, ... },                  // from ASI level-ups
+    override:  { str?, dex?, ... }                 // per-ability manual overrides
+  },
+
+  proficiencies: {
+    skills:           { [skillId]: "proficient"|"expertise" },
+    savingThrowsExtra:[],           // additional saves beyond class defaults
+    armor, weapons, tools, languages: [],
+    skillOverrides:   { [skillId]: number },   // fixed override bypasses formula
+    saveOverrides:    { [abilityKey]: number },
+    langMeta:         { [lang]:    { source, notes } },  // provenance for manual languages
+    armorMeta:        { [name]:   { source, notes } },
+    weaponMeta:       { [name]:   { source, notes } },
+    toolMeta:         { [name]:   { source, notes } }
+  },
+
+  combat: {
+    maxHp, currentHp, tempHp,
+    hitDiceUsed:      { [dieKey]: number },     // e.g. { "d8": 2 }
+    hitDiceExtra:     0,                         // manual +/- adjustment on top of level
+    deathSaves:       { successes, failures },
+    conditions:       [{ conditionId, source, notes }],
+    resistances, immunities, vulnerabilities: [],
+    speedBonus:       0,
+    actionEconomy:    { action, bonusAction, reaction },
+    customActions:    [{ id, name, used }],      // user-defined action economy items
+    // Stat overrides (null = use formula):
+    acOverride, initiativeOverride, initiativeBonus, speedOverride,
+    profBonusOverride, hitDieOverride,
+    passiveOverrides: { perception, investigation, insight },
+    // Attack overrides & custom attacks:
+    customAttacks:    [{ id, name, atkAbility, damage, damageType, range, properties[], notes }],
+    attackOverrides:  { [instanceId]: { name?, atkAbility?, damage?, damageType?, range?, properties?, notes? } }
+  },
+
+  equipment: {
+    items: [{
+      instanceId,
+      itemId,         // SRD item id, or null for custom
+      custom,         // populated if homebrew item
+      overrides,      // per-instance field overrides for SRD items
+      quantity, equipped, attuned,
+      source,         // "Acquired from" provenance label
+      notes,          // user notes shown on hover
+      containerId
+    }],
+    currency: { cp, sp, ep, gp, pp }
+  },
+
+  spellcasting: {
+    slotsUsed:        { [level]: number },
+    pactSlotsUsed:    0,
+    knownSpells:      [],    // SRD spell ids
+    preparedSpells:   [],
+    spellbook:        [],
+    custom:           [],    // homebrew spell records
+    spellOverrides:   { [spellId]: partialSpellRecord },  // edits to SRD spells
+    spellSources:     { [spellId]: string },              // "Acquired from" labels
+    spellNotes:       { [spellId]: string },              // user notes
+    // Stat overrides (null = use formula):
+    saveDcOverride, attackOverride, abilityOverride
+  },
+
+  features: {
+    featIds: [],
+    disabledFeatureIds: [],
+    custom:    [{ id, name, source, level, desc, _userNotes? }],
+    overrides: { [featureId]: { name?, desc?, source?, level? } },  // edits to built-in features
+    notes:     { [featureId]: string },   // user notes
+    sources:   { [featureId]: string }    // "Acquired from" labels
+  },
+
+  lore:       { backstory, personalityTraits[], ideals[], bonds[], flaws[], ... },
+  party:      [{ name, playerName, race, class, level }],
+  sessionLog: [{ id, date, sessionNumber, notes }],
+  settings:   { hpLevelUpMethod, autoSaveEnabled }
+}
+```
+
+---
+
+## Key patterns
+
+### Override pattern
+Every SRD-derived value can be overridden. Override buckets are stored on the raw doc and merged at render/derive time. The SRD base is **never mutated**.
+
+- **Stat overrides** (AC, speed, initiative, proficiency bonus, hit die, passives, spell DC/attack/ability, per-ability scores, per-skill/save modifiers): stored as `null`-able fields on `combat`, `proficiencies`, `abilityScores.override`, `spellcasting`.
+- **Content overrides** (spell fields, item fields, feature fields, attack stats): stored in separate `*Overrides` buckets, merged onto the base record at render time.
+- Use `pickOverride(override, fallback)` in `derive.js` — returns the override only when it is non-null, non-undefined, and non-"".
+
+### Edit mode gating
+The sheet header has a `✎ Edit Stats` / `✓ Editing` toggle. The root `.sheet` element gets `data-edit-mode="on"` when active.
+
+Add `btn--edit-only` class to any element that should only appear in edit mode:
+```css
+/* phase1.css already has: */
+.btn--edit-only           { display: none !important; }
+div.btn--edit-only        { display: none !important; }
+.sheet[data-edit-mode="on"] .btn--edit-only     { display: inline-flex !important; }
+.sheet[data-edit-mode="on"] div.btn--edit-only  { display: flex !important; }
+```
+
+The global click delegate on the root element routes `[data-override-path]` attribute clicks to `openOverrideFor()`, which maps the path token to the correct popover config. It skips `button`, `input`, `select`, `textarea`, `a` descendants so interactive children fire normally.
+
+### Stable feature IDs
+Feature IDs are slug-based so overrides survive level-ups:
+- Class features: `class:{classId}:{slug(name)}`
+- Race traits: `race:{raceId}:{subraceId}:{slug(name)}`
+- Background: `bg:{backgroundId}:{slug(name)}`
+- Custom: whatever ID was assigned at creation (`custom-{uuid}`)
+
+### Homebrew form builder
+`openHomebrewForm({ schema, initial?, onSave })` renders a modal form from a schema object. Schemas live in `js/data/homebrewSchemas.js`. Each schema has:
+- `fields[]` — field definitions with `type`, `label`, `key`, `default`, `required`, `showIf`, `placeholder`, `help`
+- `assemble(formState)` — produces the stored record shape
+- `disassemble(storedRecord)` — flattens back into form state for editing
+
+Fields prefixed `_` (e.g. `_acquiredFrom`, `_userNotes`) are **personal tracking fields** — `assemble()` passes them through but the save handler in `detailModals.js` routes them to their own storage buckets (`spellSources`, `spellNotes`, `item.source`, `item.notes`, `features.notes`) separately from the content record.
+
+`showIf` on a field hides it conditionally. It only triggers a re-render when the field has `key === "type"` or `rerenders: true`.
+
+### Tooltip pattern
+```js
+bindTooltip(element, {
+  title: "Name",
+  html: buildTooltipHtml({ baseText, sources, acquiredFrom, userNotes }),
+  sourceRef: "SRD",         // optional small label
+  onMore: () => openModal() // optional "More" button
+});
+```
+`buildTooltipHtml` escapes all text, converts `\n` to `<br>`, and renders sections in order: acquired-from → base text → sources list → user notes.
+
+### Pip fill pattern
+Pips use `data-used="true"` attribute (not a class) to fill gold:
+```js
+el("button", { class: "pip", "data-used": isActive ? "true" : null, ... })
+```
+
+### Panel header pattern (title + action buttons)
+```js
+el("div", { class: "panel__header" },
+  el("h3", {}, "Section Title"),
+  el("button", { class: "btn btn--sm" }, "Action")
+)
+```
+
+---
+
+## Storage split
 
 - **localStorage** — roster index only (`grimoire:roster`). Written via `updateRosterEntry()` after every save.
 - **IndexedDB** — full character documents. Dexie DB name `"grimoire"`, table `characters`.
 - **Export format** — raw character JSON, `.grimoire.json` extension.
 
-### CSS
+---
 
-Design tokens in `css/tokens.css` (colors, spacing, typography, shadows). No CSS-in-JS. Class naming is BEM-ish. `css/phase1.css` holds supplementary styles for the Phase 1 screens; older partial stubs in `css/sheet.css` and `css/creator.css` may overlap.
+## CSS
 
-### Routing
+Design tokens in `css/tokens.css` (colors, spacing, typography, shadows). No CSS-in-JS. Class naming is BEM-ish.
+
+- `css/phase1.css` — primary stylesheet for all Phase 1 UI. Add new styles here.
+- `css/sheet.css`, `css/creator.css` — older partial stubs; may have overlapping rules. Prefer `phase1.css` for new work.
+- `css/components.css` — shared component styles (`.pip`, `.pips`, tooltips, modals).
+
+**Key CSS variables** (from `tokens.css`): `--c-gold`, `--c-bg-0/1/2/3`, `--c-text`, `--c-text-dim`, `--c-text-mute`, `--c-border`, `--c-good`, `--c-bad`, `--sp-1..4`, `--fs-xs/sm/lg`, `--font-display`, `--r-sm`, `--tr-fast`.
+
+---
+
+## Routing
 
 Hash-based. `main.js` calls `defineRoute` for each path, then `initRouter()`. Navigation is always via `navigate(path)` from `js/ui/router.js` — never set `location.hash` directly.
+
+---
 
 ## Content scope
 
@@ -84,8 +278,10 @@ SRD 5.1 only. What this means practically:
 - ~45 core spells; full spell list requires running `scripts/build-data.js` against `vendor/5e-database/`
 - No feats (`js/data/feats.js` is intentionally empty)
 
+---
+
 ## Phased delivery
 
-- **Phase 1 (done):** Roster, creator (standard array), full sheet with 6 tabs, export/import
-- **Phase 2:** Level-up flow, conditions tracker, point buy, full lore section
-- **Phase 3:** Multiclassing, homebrew builder, print/PDF, service worker
+- **Phase 1 (done):** Roster, creator (standard array), full sheet with 6 tabs (Overview, Combat, Spells, Inventory, Features, Lore), export/import, full stat overrides, custom spells/items/features/attacks, provenance tooltips, source+notes on everything, edit-mode gating, languages/proficiencies editable
+- **Phase 2:** Level-up flow, conditions tracker with rule tooltips, point buy ability scores, full lore section, action economy from class features (Second Wind, etc.)
+- **Phase 3:** Multiclassing, print/PDF view, service worker for offline install, dice roll animations

@@ -182,21 +182,49 @@
 /* Death saves */
 .death-saves { display: grid; grid-template-columns: 1fr auto; gap: var(--sp-2); align-items: center; }
 
+/* Panel header row (title + actions) */
+.panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+.panel__header h3 { margin: 0; }
+
 /* Attacks */
 .attack-list { display: flex; flex-direction: column; gap: var(--sp-1); }
 .attack-row {
   display: grid;
-  grid-template-columns: 1.5fr 0.5fr 1.2fr 0.8fr;
+  /* name | atk | dmg | range | actions(hidden unless edit mode) */
+  grid-template-columns: 1.5fr 0.5fr 1.2fr 0.7fr 0fr;
   gap: var(--sp-2);
   padding: var(--sp-2);
   background: var(--c-bg-1);
   border-radius: var(--r-sm);
   align-items: center;
+  transition: background var(--tr-fast);
 }
-.attack-row__name { font-weight: 600; }
-.attack-row__atk { font-family: var(--font-display); font-size: var(--fs-lg); color: var(--c-gold); text-align: center; }
-.attack-row__dmg { color: var(--c-text-dim); font-size: var(--fs-sm); }
-.attack-row__range { color: var(--c-text-mute); font-size: var(--fs-xs); }
+.attack-row:hover { background: var(--c-bg-2); }
+.attack-row.is-edited { border-left: 2px solid var(--c-gold); }
+.attack-row.is-custom { border-left: 2px solid var(--c-accent, #7c7cfa); }
+.attack-row__name { font-weight: 600; display: flex; align-items: center; gap: var(--sp-1); }
+.attack-row__atk  { font-family: var(--font-display); font-size: var(--fs-lg); color: var(--c-gold); text-align: center; }
+.attack-row__dmg  { color: var(--c-text-dim); font-size: var(--fs-sm); }
+.attack-row__range{ color: var(--c-text-mute); font-size: var(--fs-xs); }
+.attack-row__actions { display: flex; gap: 4px; overflow: hidden; }
+.attack-badge {
+  font-size: var(--fs-xs);
+  color: var(--c-text-mute);
+  padding: 1px 4px;
+  background: var(--c-bg-3);
+  border-radius: var(--r-sm);
+  line-height: 1;
+}
+/* In edit mode, show actions column */
+.sheet[data-edit-mode="on"] .attack-row {
+  grid-template-columns: 1.5fr 0.5fr 1.2fr 0.7fr auto;
+}
 
 /* Action economy */
 .action-economy { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
@@ -212,8 +240,61 @@
 }
 .action-pip.is-used { background: var(--c-bg-3); color: var(--c-text-mute); text-decoration: line-through; }
 
+/* Custom action pip wrapper: pip + ×-remove */
+.action-pip-wrap { position: relative; display: inline-flex; align-items: center; gap: 2px; }
+.action-pip-remove {
+  display: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  line-height: 1;
+  font-size: 10px;
+  background: var(--c-bg-3);
+  border: 1px solid var(--c-border);
+  border-radius: 50%;
+  color: var(--c-text-mute);
+  cursor: pointer;
+}
+.sheet[data-edit-mode="on"] .action-pip-remove { display: flex; align-items: center; justify-content: center; }
+
 /* Hit dice */
-.hit-dice { display: flex; flex-direction: column; gap: var(--sp-1); }
+.hit-dice { display: flex; flex-direction: column; gap: var(--sp-2); }
+.hit-dice__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+.hit-dice__adjust {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: var(--fs-lg);
+  line-height: 1;
+  text-align: center;
+  flex-shrink: 0;
+}
+.hit-dice__total-label {
+  font-size: var(--fs-sm);
+  color: var(--c-text-mute);
+  flex: 1;
+  text-align: center;
+}
+.hit-die-badge {
+  display: inline-block;
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--c-bg-1);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  color: var(--c-gold);
+  cursor: default;
+}
+.sheet[data-edit-mode="on"] .hit-die-badge {
+  cursor: pointer;
+  border-color: var(--c-gold);
+}
 
 /* Spells */
 .spell-section { display: flex; flex-direction: column; gap: var(--sp-1); margin-top: var(--sp-2); }
@@ -270,3 +351,110 @@
 .feature-row__name { grid-area: name; font-weight: 600; }
 .feature-row__level { grid-area: level; font-size: var(--fs-xs); color: var(--c-gold); }
 .feature-row__desc { grid-area: desc; font-size: var(--fs-sm); color: var(--c-text-dim); }
+
+/* ──────── Homebrew form ──────── */
+.homebrew-form { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2) var(--sp-3); }
+@media (max-width: 600px) { .homebrew-form { grid-template-columns: 1fr; } }
+.homebrew-form__row { display: flex; flex-direction: column; gap: 4px; }
+.homebrew-form__row--check {
+  flex-direction: row; align-items: center; gap: var(--sp-2);
+}
+.homebrew-form__row--check input { width: 18px; height: 18px; }
+.homebrew-form__label { font-size: var(--fs-xs); color: var(--c-text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+.homebrew-form__help { font-size: var(--fs-xs); color: var(--c-text-mute); font-style: italic; }
+.homebrew-form textarea,
+.homebrew-form input[type="text"],
+.homebrew-form input[type="number"],
+.homebrew-form select {
+  background: var(--c-bg-0);
+  border: 1px solid var(--c-border);
+  color: var(--c-text);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--r-sm);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+}
+.homebrew-form textarea { resize: vertical; min-height: 60px; font-family: inherit; }
+.homebrew-form textarea:focus,
+.homebrew-form input:focus,
+.homebrew-form select:focus { outline: 1px solid var(--c-gold); }
+
+/* full-width rows for long inputs */
+.homebrew-form__row:has(textarea) { grid-column: 1 / -1; }
+
+/* ──────── Override popover ──────── */
+.override-pop {
+  position: absolute;
+  background: var(--c-bg-1);
+  border: 1px solid var(--c-gold);
+  border-radius: var(--r-md);
+  padding: var(--sp-2);
+  box-shadow: 0 6px 24px rgba(0,0,0,0.6);
+  z-index: 1000;
+  min-width: 220px;
+  display: flex; flex-direction: column; gap: var(--sp-2);
+}
+.override-pop__title { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-gold); }
+.override-pop input {
+  background: var(--c-bg-0); border: 1px solid var(--c-border); color: var(--c-text);
+  padding: var(--sp-1) var(--sp-2); border-radius: var(--r-sm); font-size: var(--fs-sm);
+}
+.override-pop__row { display: flex; gap: var(--sp-1); justify-content: flex-end; }
+
+/* Edit mode affordances */
+.sheet[data-edit-mode="on"] [data-override-path] {
+  outline: 1px dashed var(--c-gold);
+  cursor: pointer;
+  border-radius: var(--r-sm);
+}
+.sheet[data-edit-mode="on"] [data-override-path]:hover { background: rgba(201,168,76,0.08); }
+[data-override-path][data-overridden="true"] { color: var(--c-gold); }
+
+/* Inline "Add custom..." button */
+.btn--add-custom {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: var(--fs-xs); color: var(--c-gold);
+  background: transparent; border: 1px dashed var(--c-border);
+  padding: 2px var(--sp-2); border-radius: var(--r-sm); cursor: pointer;
+}
+.btn--add-custom:hover { border-color: var(--c-gold); background: rgba(201,168,76,0.06); }
+
+/* ──────── Chips (languages, proficiencies) ──────── */
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: var(--sp-2); }
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--c-bg-0);
+  border: 1px solid var(--c-border);
+  padding: 2px var(--sp-2);
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  color: var(--c-text);
+  cursor: help;
+}
+.chip__x {
+  background: transparent; border: none; color: var(--c-text-dim);
+  cursor: pointer; padding: 0 2px; font-size: 14px; line-height: 1;
+  display: none;
+}
+.sheet[data-edit-mode="on"] .chip__x { display: inline; }
+.sheet[data-edit-mode="on"] .chip__x:hover { color: var(--c-bad); }
+.add-inline { margin-top: var(--sp-1); display: none; }
+.sheet[data-edit-mode="on"] .add-inline { display: block; }
+
+/* Buttons / button-groups only shown in edit mode */
+.btn--edit-only { display: none !important; }
+.sheet[data-edit-mode="on"] .btn--edit-only { display: inline-flex !important; }
+/* wrapper divs that group multiple edit-mode buttons */
+div.btn--edit-only { display: none !important; }
+.sheet[data-edit-mode="on"] div.btn--edit-only { display: flex !important; }
+
+/* ──────── Notes editor in detail modals ──────── */
+.notes-editor { margin-top: var(--sp-3); border-top: 1px dashed var(--c-border); padding-top: var(--sp-2); }
+.notes-editor__label { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-gold); margin-bottom: 4px; }
+.notes-editor textarea {
+  width: 100%; min-height: 80px;
+  background: var(--c-bg-0); border: 1px solid var(--c-border); color: var(--c-text);
+  padding: var(--sp-2); border-radius: var(--r-sm); font-family: inherit; font-size: var(--fs-sm);
+  resize: vertical;
+}
+.notes-editor textarea:focus { outline: 1px solid var(--c-gold); }

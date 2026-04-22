@@ -2,6 +2,7 @@ import { el } from "../../util/dom.js";
 import { SKILL_IDS, SKILLS } from "../../data/skills.js";
 import { ABILITIES } from "../../data/rules.js";
 import { bindTooltip } from "./tooltip.js";
+import { buildSourceHtml } from "./provenance.js";
 
 const fmtMod = (m) => (m >= 0 ? `+${m}` : `${m}`);
 
@@ -22,18 +23,24 @@ export function renderSkillList(store) {
         });
       }
     });
-    const row = el("div", { class: "stat-row", tabindex: 0 },
+    const row = el("div", {
+      class: "stat-row",
+      tabindex: 0,
+      "data-override-path": `skill.${id}`,
+      "data-overridden": s.overridden ? "true" : null
+    },
       pip,
       el("span", { class: "stat-row__ab" }, SKILLS[id].ability.toUpperCase()),
       el("span", { class: "stat-row__name" }, SKILLS[id].name),
       el("span", { class: "stat-row__val" }, fmtMod(s.modifier))
     );
+    const baseLine = `${ABILITIES[SKILLS[id].ability].full}-based. ${
+      s.level === "expertise" ? "Expertise (2× proficiency bonus)." :
+      s.level === "proficient" ? "Proficient." : "Not proficient."
+    }`;
     bindTooltip(row, {
       title: SKILLS[id].name,
-      summary: `${ABILITIES[SKILLS[id].ability].full}-based. ${
-        s.level === "expertise" ? "Expertise (2× proficiency bonus)." :
-        s.level === "proficient" ? "Proficient." : "Not proficient."
-      }`,
+      html: buildSourceHtml(baseLine, s.sources),
       sourceRef: "PHB"
     });
     return row;
@@ -55,12 +62,23 @@ export function renderSavingThrows(store) {
         });
       }
     });
-    return el("div", { class: "stat-row" },
+    const saveBase = `${sv.proficient ? "Proficient" : "Not proficient"} in ${ABILITIES[sv.ability].full} saves.`;
+    const row = el("div", {
+      class: "stat-row",
+      "data-override-path": `save.${sv.ability}`,
+      "data-overridden": sv.overridden ? "true" : null
+    },
       pip,
       el("span", { class: "stat-row__ab" }, sv.ability.toUpperCase()),
       el("span", { class: "stat-row__name" }, ABILITIES[sv.ability].full),
       el("span", { class: "stat-row__val" }, fmtMod(sv.modifier))
     );
+    bindTooltip(row, {
+      title: `${ABILITIES[sv.ability].full} Save`,
+      html: buildSourceHtml(saveBase, sv.sources),
+      sourceRef: "PHB"
+    });
+    return row;
   });
   return el("div", { class: "stat-list" }, ...rows);
 }
