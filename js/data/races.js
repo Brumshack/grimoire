@@ -1,4 +1,4 @@
-// SRD 5.1 races (OGL).
+// PHB 2014 races — all nine core races with full subraces.
 // speed in feet.
 
 export const RACES = {
@@ -20,6 +20,14 @@ export const RACES = {
         traits: [
           { name: "Dwarven Toughness", desc: "Your hit point maximum increases by 1, and it increases by 1 every time you gain a level." }
         ]
+      },
+      {
+        id: "mountain-dwarf", name: "Mountain Dwarf",
+        abilityBonuses: { str: 2 },
+        proficiencies: { armor: ["light","medium"] },
+        traits: [
+          { name: "Dwarven Armor Training", desc: "Proficiency with light and medium armor." }
+        ]
       }
     ]
   },
@@ -31,7 +39,8 @@ export const RACES = {
     proficiencies: { skills: ["perception"] },
     traits: [
       { name: "Fey Ancestry", desc: "Advantage on saves vs. being charmed; magic can't put you to sleep." },
-      { name: "Trance", desc: "Elves don't need to sleep. They meditate deeply for 4 hours a day. This is the equivalent of a long rest." }
+      { name: "Trance", desc: "Elves don't need to sleep. They meditate deeply for 4 hours a day. This is the equivalent of a long rest." },
+      { name: "Keen Senses", desc: "Proficiency in the Perception skill." }
     ],
     subraces: [
       {
@@ -43,6 +52,29 @@ export const RACES = {
           { name: "Elf Weapon Training", desc: "Proficiency with longsword, shortsword, shortbow, and longbow." },
           { name: "Cantrip", desc: "Know one cantrip of your choice from the wizard spell list. INT is your spellcasting ability." },
           { name: "Extra Language", desc: "Learn one extra language of your choice." }
+        ]
+      },
+      {
+        id: "wood-elf", name: "Wood Elf",
+        abilityBonuses: { wis: 1 },
+        speed: 35,
+        proficiencies: { weapons: ["longsword","shortsword","shortbow","longbow"] },
+        traits: [
+          { name: "Elf Weapon Training", desc: "Proficiency with longsword, shortsword, shortbow, and longbow." },
+          { name: "Fleet of Foot", desc: "Your base walking speed increases to 35 feet." },
+          { name: "Mask of the Wild", desc: "You can attempt to hide even when you are only lightly obscured by foliage, heavy rain, falling snow, mist, or other natural phenomena." }
+        ]
+      },
+      {
+        id: "dark-elf", name: "Dark Elf (Drow)",
+        abilityBonuses: { cha: 1 },
+        darkvision: 120,
+        proficiencies: { weapons: ["rapier","shortsword","hand-crossbow"] },
+        traits: [
+          { name: "Superior Darkvision", desc: "Your darkvision has a range of 120 feet." },
+          { name: "Sunlight Sensitivity", desc: "Disadvantage on attack rolls and Perception checks that rely on sight when you or your target is in direct sunlight." },
+          { name: "Drow Magic", desc: "Know the Dancing Lights cantrip. At 3rd level, cast Faerie Fire once per long rest. At 5th level, cast Darkness once per long rest. CHA is your spellcasting ability." },
+          { name: "Drow Weapon Training", desc: "Proficiency with rapiers, shortswords, and hand crossbows." }
         ]
       }
     ]
@@ -62,6 +94,13 @@ export const RACES = {
         abilityBonuses: { cha: 1 },
         traits: [
           { name: "Naturally Stealthy", desc: "You can attempt to hide even when obscured only by a creature at least one size larger than you." }
+        ]
+      },
+      {
+        id: "stout-halfling", name: "Stout Halfling",
+        abilityBonuses: { con: 1 },
+        traits: [
+          { name: "Stout Resilience", desc: "Advantage on saving throws against poison, and resistance to poison damage." }
         ]
       }
     ]
@@ -95,6 +134,14 @@ export const RACES = {
       { name: "Gnome Cunning", desc: "Advantage on all INT, WIS, and CHA saving throws against magic." }
     ],
     subraces: [
+      {
+        id: "forest-gnome", name: "Forest Gnome",
+        abilityBonuses: { dex: 1 },
+        traits: [
+          { name: "Natural Illusionist", desc: "Know the Minor Illusion cantrip. INT is your spellcasting ability for it." },
+          { name: "Speak with Small Beasts", desc: "You can communicate simple ideas with beasts of Small size or smaller through sounds and gestures." }
+        ]
+      },
       {
         id: "rock-gnome", name: "Rock Gnome",
         abilityBonuses: { con: 1 },
@@ -154,7 +201,7 @@ export function listRaces() {
           subraceId: s.id,
           name: s.name,
           fullName: s.name,
-          speed: r.speed,
+          speed: s.speed ?? r.speed,
           size: r.size
         });
       }
@@ -195,13 +242,17 @@ export function resolveRace(raceId, subraceId) {
     }
   }
 
+  // Subraces can override speed and darkvision (e.g. Wood Elf, Drow)
+  const speed      = sub?.speed      ?? race.speed;
+  const darkvision = sub?.darkvision ?? race.darkvision ?? 0;
+
   return {
     raceId, subraceId,
     name: sub ? sub.name : race.name,
     fullName: sub ? `${race.name} (${sub.name})` : race.name,
     size: race.size,
-    speed: race.speed,
-    darkvision: race.darkvision || 0,
+    speed,
+    darkvision,
     abilityBonuses,
     languages,
     traits,

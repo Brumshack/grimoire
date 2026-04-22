@@ -409,7 +409,7 @@
 
 /* Editable stat affordances (always on — no edit mode toggle) */
 .sheet [data-override-path] {
-  outline: 1px dashed var(--c-gold);
+  outline: 1px solid var(--c-gold);
   cursor: pointer;
   border-radius: var(--r-sm);
 }
@@ -420,7 +420,7 @@
 .sheet__subtitle [data-override-path] {
   padding: 1px 4px;
 }
-.sheet__subtitle [data-override-path]:hover { text-decoration: underline dotted; }
+.sheet__subtitle [data-override-path]:hover { text-decoration: underline; }
 
 /* Inline "Add custom..." button */
 .btn--add-custom {
