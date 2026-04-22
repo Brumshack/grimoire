@@ -2,7 +2,7 @@ import { el } from "../../util/dom.js";
 import { SKILL_IDS, SKILLS } from "../../data/skills.js";
 import { ABILITIES } from "../../data/rules.js";
 import { bindTooltip } from "./tooltip.js";
-import { buildSourceHtml } from "./provenance.js";
+import { buildTooltipHtml } from "./provenance.js";
 
 const fmtMod = (m) => (m >= 0 ? `+${m}` : `${m}`);
 
@@ -38,9 +38,11 @@ export function renderSkillList(store) {
       s.level === "expertise" ? "Expertise (2× proficiency bonus)." :
       s.level === "proficient" ? "Proficient." : "Not proficient."
     }`;
+    const note   = store.doc.proficiencies?.skillNotes?.[id] || null;
+    const source = store.doc.proficiencies?.skillSources?.[id] || null;
     bindTooltip(row, {
       title: SKILLS[id].name,
-      html: buildSourceHtml(baseLine, s.sources),
+      html: buildTooltipHtml({ baseText: baseLine, sources: s.sources, acquiredFrom: source, userNotes: note }),
       sourceRef: "PHB"
     });
     return row;
@@ -73,9 +75,11 @@ export function renderSavingThrows(store) {
       el("span", { class: "stat-row__name" }, ABILITIES[sv.ability].full),
       el("span", { class: "stat-row__val" }, fmtMod(sv.modifier))
     );
+    const note   = store.doc.proficiencies?.saveNotes?.[sv.ability] || null;
+    const source = store.doc.proficiencies?.saveSources?.[sv.ability] || null;
     bindTooltip(row, {
       title: `${ABILITIES[sv.ability].full} Save`,
-      html: buildSourceHtml(saveBase, sv.sources),
+      html: buildTooltipHtml({ baseText: saveBase, sources: sv.sources, acquiredFrom: source, userNotes: note }),
       sourceRef: "PHB"
     });
     return row;

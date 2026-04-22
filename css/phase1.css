@@ -395,20 +395,32 @@
   display: flex; flex-direction: column; gap: var(--sp-2);
 }
 .override-pop__title { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-gold); }
-.override-pop input {
+.override-pop input, .override-pop select, .override-pop textarea {
   background: var(--c-bg-0); border: 1px solid var(--c-border); color: var(--c-text);
   padding: var(--sp-1) var(--sp-2); border-radius: var(--r-sm); font-size: var(--fs-sm);
+  width: 100%; box-sizing: border-box;
+}
+.override-pop textarea { resize: vertical; min-height: 52px; font-family: inherit; }
+.override-pop__section-label {
+  font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--c-text-mute); margin-top: var(--sp-1);
 }
 .override-pop__row { display: flex; gap: var(--sp-1); justify-content: flex-end; }
 
-/* Edit mode affordances */
-.sheet[data-edit-mode="on"] [data-override-path] {
+/* Editable stat affordances (always on — no edit mode toggle) */
+.sheet [data-override-path] {
   outline: 1px dashed var(--c-gold);
   cursor: pointer;
   border-radius: var(--r-sm);
 }
-.sheet[data-edit-mode="on"] [data-override-path]:hover { background: rgba(201,168,76,0.08); }
+.sheet [data-override-path]:hover { background: rgba(201,168,76,0.08); }
 [data-override-path][data-overridden="true"] { color: var(--c-gold); }
+
+/* Header subtitle clickable items */
+.sheet__subtitle [data-override-path] {
+  padding: 1px 4px;
+}
+.sheet__subtitle [data-override-path]:hover { text-decoration: underline dotted; }
 
 /* Inline "Add custom..." button */
 .btn--add-custom {
@@ -434,19 +446,14 @@
 .chip__x {
   background: transparent; border: none; color: var(--c-text-dim);
   cursor: pointer; padding: 0 2px; font-size: 14px; line-height: 1;
-  display: none;
+  display: inline;
 }
-.sheet[data-edit-mode="on"] .chip__x { display: inline; }
-.sheet[data-edit-mode="on"] .chip__x:hover { color: var(--c-bad); }
-.add-inline { margin-top: var(--sp-1); display: none; }
-.sheet[data-edit-mode="on"] .add-inline { display: block; }
+.chip__x:hover { color: var(--c-bad); }
+.add-inline { margin-top: var(--sp-1); display: block; }
 
-/* Buttons / button-groups only shown in edit mode */
-.btn--edit-only { display: none !important; }
-.sheet[data-edit-mode="on"] .btn--edit-only { display: inline-flex !important; }
-/* wrapper divs that group multiple edit-mode buttons */
-div.btn--edit-only { display: none !important; }
-.sheet[data-edit-mode="on"] div.btn--edit-only { display: flex !important; }
+/* btn--edit-only: kept for any lingering references, now always visible */
+.btn--edit-only { display: inline-flex !important; }
+div.btn--edit-only { display: flex !important; }
 
 /* ──────── Notes editor in detail modals ──────── */
 .notes-editor { margin-top: var(--sp-3); border-top: 1px dashed var(--c-border); padding-top: var(--sp-2); }

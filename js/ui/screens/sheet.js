@@ -21,6 +21,8 @@ import { openModal } from "../components/modal.js";
 import { ALIGNMENTS } from "../../data/rules.js";
 import { SPELLS, spellsByLevel } from "../../data/spells.js";
 import { ITEMS, listWeapons, listArmor, listGear } from "../../data/equipment.js";
+import { listRaces } from "../../data/races.js";
+import { CLASSES, CLASS_IDS } from "../../data/classes.js";
 
 export async function renderSheet(root, id) {
   clear(root);
@@ -38,16 +40,15 @@ export async function renderSheet(root, id) {
 
   const doc = migrate(loaded);
   const store = new CharacterStore(doc);
-  const state = { tab: "overview", editMode: false };
+  const state = { tab: "overview" };
 
   function rerender() {
     clear(root);
     root.append(renderSheetChrome(store, state, rerender));
   }
 
-  // Delegate clicks on anything tagged with [data-override-path] while edit mode is on.
+  // Delegate clicks on anything tagged with [data-override-path].
   root.addEventListener("click", (e) => {
-    if (!state.editMode) return;
     // ignore clicks directly on interactive children (pip toggles, inputs)
     if (e.target.closest("button, input, select, textarea, a")) return;
     const target = e.target.closest("[data-override-path]");
@@ -68,10 +69,10 @@ function renderSheetChrome(store, state, rerender) {
   const doc = store.doc;
   const d = store.derived;
 
-  const alignment = ALIGNMENTS.find(a => a.id === doc.identity.alignment)?.name || "";
+  const alignment = ALIGNMENTS.find(a => a.id === doc.identity.alignment)?.name || "Alignment";
   const classLine = d.primarySubclass
     ? `${d.primarySubclass.name} ${d.primaryClass.name}`
-    : d.primaryClass?.name || "—";
+    : d.primaryClass?.name || "— Class";
 
   const header = el("header", { class: "sheet__header" },
     el("button", { class: "btn btn--ghost", onclick: () => navigate("/roster") }, "← Roster"),
@@ -80,10 +81,10 @@ function renderSheetChrome(store, state, rerender) {
         oninput: e => store.update(x => { x.identity.name = e.target.textContent.trim() || "Unnamed"; }),
       }, doc.identity.name),
       el("div", { class: "sheet__subtitle" },
-        el("span", {}, `Level ${d.totalLevel}`), sep(),
-        el("span", {}, d.resolvedRace?.fullName || "—"), sep(),
-        el("span", {}, classLine), sep(),
-        el("span", {}, alignment)
+        el("span", { "data-override-path": "identity.level",     title: "Click to edit level"     }, `Level ${d.totalLevel}`), sep(),
+        el("span", { "data-override-path": "identity.race",      title: "Click to edit race"      }, d.resolvedRace?.fullName || "— Race"), sep(),
+        el("span", { "data-override-path": "identity.class",     title: "Click to edit class"     }, classLine), sep(),
+        el("span", { "data-override-path": "identity.alignment", title: "Click to edit alignment" }, alignment)
       )
     ),
     el("div", { class: "sheet__spacer" }),
@@ -101,19 +102,13 @@ function renderSheetChrome(store, state, rerender) {
         onclick: () => store.update(x => { x.progression.inspiration = !x.progression.inspiration; })
       }),
       el("span", { class: "label" }, "Inspiration")
-    ),
-    el("button", {
-      class: `btn btn--sm ${state.editMode ? "btn--primary" : "btn--ghost"}`,
-      type: "button",
-      title: "Toggle edit mode — click any stat to override it",
-      onclick: () => { state.editMode = !state.editMode; rerender(); }
-    }, state.editMode ? "✓ Editing" : "✎ Edit Stats")
+    )
   );
 
   const tabs = el("nav", { class: "sheet__tabs" },
     tabBtn("overview", "Overview", state, rerender),
     tabBtn("combat",   "Combat",   state, rerender),
-    tabBtn("spells",   "Spells",   state, rerender, !d.primaryClass?.spellcasting),
+    tabBtn("spells",   "Spells",   state, rerender),
     tabBtn("inventory","Inventory",state, rerender),
     tabBtn("features", "Features", state, rerender),
     tabBtn("lore",     "Lore",     state, rerender),
@@ -129,7 +124,7 @@ function renderSheetChrome(store, state, rerender) {
     default:          body = renderOverviewTab(store);
   }
 
-  return el("div", { class: "sheet", "data-edit-mode": state.editMode ? "on" : "off" }, header, tabs, body);
+  return el("div", { class: "sheet", "data-edit-mode": "on" }, header, tabs, body);
 }
 
 /* ─────────────────────── override routing ─────────────────────── */
@@ -140,15 +135,78 @@ function openOverrideFor(store, target) {
   const doc = store.doc;
   const d = store.derived;
 
+  // ── identity fields (level, race, class, alignment) ──
+  if (path === "identity.level") {
+    openOverridePopover({
+      anchorEl: target, label: "Character Level", type: "number",
+      currentValue: doc.progression.classes[0]?.level || 1, baseHint: null,
+      onSave: v => store.update(x => { x.progression.classes[0].level = Math.max(1, Math.min(20, v ?? 1)); })
+    });
+    return;
+  }
+  if (path === "identity.alignment") {
+    openOverridePopover({
+      anchorEl: target, label: "Alignment", type: "select",
+      options: ALIGNMENTS.map(a => ({ value: a.id, label: a.name })),
+      currentValue: doc.identity.alignment || "TN", baseHint: null,
+      onSave: v => store.update(x => { x.identity.alignment = v || "TN"; })
+    });
+    return;
+  }
+  if (path === "identity.race") {
+    const races = listRaces();
+    openOverridePopover({
+      anchorEl: target, label: "Race", type: "select",
+      options: [{ value: "", label: "— None —" }, ...races.map(r => ({ value: r.id, label: r.fullName }))],
+      currentValue: doc.race.raceId
+        ? (doc.race.subraceId ? `${doc.race.raceId}:${doc.race.subraceId}` : doc.race.raceId)
+        : "",
+      baseHint: null,
+      onSave: v => store.update(x => {
+        if (!v) { x.race.raceId = null; x.race.subraceId = null; return; }
+        const [raceId, subraceId = null] = v.split(":");
+        x.race.raceId = raceId;
+        x.race.subraceId = subraceId;
+      })
+    });
+    return;
+  }
+  if (path === "identity.class") {
+    openOverridePopover({
+      anchorEl: target, label: "Class", type: "select",
+      options: [{ value: "", label: "— None —" }, ...CLASS_IDS.map(id => ({ value: id, label: CLASSES[id].name }))],
+      currentValue: doc.progression.classes[0]?.classId || "", baseHint: null,
+      onSave: v => store.update(x => {
+        if (!v) { x.progression.classes[0].classId = null; x.progression.classes[0].subclassId = null; return; }
+        const cls = CLASSES[v];
+        const level = x.progression.classes[0]?.level || 1;
+        const firstSub = cls.subclasses?.[0];
+        x.progression.classes[0].classId = v;
+        x.progression.classes[0].subclassId = (firstSub && firstSub.level <= level) ? firstSub.id : null;
+      })
+    });
+    return;
+  }
+
+  // ── stat overrides with note/source support ──
+  const statNoteSave = (key) => note => store.update(x => {
+    x.combat.statNotes = x.combat.statNotes || {};
+    if (!note) delete x.combat.statNotes[key]; else x.combat.statNotes[key] = note;
+  });
+  const statSrcSave = (key) => src => store.update(x => {
+    x.combat.statSources = x.combat.statSources || {};
+    if (!src) delete x.combat.statSources[key]; else x.combat.statSources[key] = src;
+  });
+
   const defs = {
-    ac:            { label: "AC Override",          type: "number", get: () => doc.combat.acOverride,            base: d.ac,            set: v => x => { x.combat.acOverride = v; } },
-    initiative:    { label: "Initiative Override",  type: "number", get: () => doc.combat.initiativeOverride,    base: d.abilities.dex.mod + (doc.combat.initiativeBonus || 0), set: v => x => { x.combat.initiativeOverride = v; } },
-    speed:         { label: "Speed Override (ft)",  type: "number", get: () => doc.combat.speedOverride,         base: (d.resolvedRace?.speed ?? 30) + (doc.combat.speedBonus || 0), set: v => x => { x.combat.speedOverride = v; } },
-    profBonus:     { label: "Proficiency Bonus",    type: "number", get: () => doc.combat.profBonusOverride,     base: d.profBonus,     set: v => x => { x.combat.profBonusOverride = v; } },
-    hitDie:        { label: "Hit Die Size",         type: "number", get: () => doc.combat.hitDieOverride,        base: d.primaryClass?.hitDie ?? 8, set: v => x => { x.combat.hitDieOverride = v; } },
-    passivePerception:    { label: "Passive Perception",    type: "number", get: () => doc.combat.passiveOverrides?.perception,    base: 10 + d.skills.perception.modifier,    set: v => x => { x.combat.passiveOverrides = x.combat.passiveOverrides || {}; x.combat.passiveOverrides.perception = v; } },
-    passiveInvestigation: { label: "Passive Investigation", type: "number", get: () => doc.combat.passiveOverrides?.investigation, base: 10 + d.skills.investigation.modifier, set: v => x => { x.combat.passiveOverrides = x.combat.passiveOverrides || {}; x.combat.passiveOverrides.investigation = v; } },
-    passiveInsight:       { label: "Passive Insight",       type: "number", get: () => doc.combat.passiveOverrides?.insight,       base: 10 + d.skills.insight.modifier,       set: v => x => { x.combat.passiveOverrides = x.combat.passiveOverrides || {}; x.combat.passiveOverrides.insight = v; } },
+    ac:            { label: "AC Override",          type: "number", get: () => doc.combat.acOverride,            base: d.ac,            set: v => x => { x.combat.acOverride = v; },            noteKey: "ac" },
+    initiative:    { label: "Initiative Override",  type: "number", get: () => doc.combat.initiativeOverride,    base: d.abilities.dex.mod + (doc.combat.initiativeBonus || 0), set: v => x => { x.combat.initiativeOverride = v; }, noteKey: "initiative" },
+    speed:         { label: "Speed Override (ft)",  type: "number", get: () => doc.combat.speedOverride,         base: (d.resolvedRace?.speed ?? 30) + (doc.combat.speedBonus || 0), set: v => x => { x.combat.speedOverride = v; }, noteKey: "speed" },
+    profBonus:     { label: "Proficiency Bonus",    type: "number", get: () => doc.combat.profBonusOverride,     base: d.profBonus,     set: v => x => { x.combat.profBonusOverride = v; },     noteKey: "profBonus" },
+    hitDie:        { label: "Hit Die Size",         type: "number", get: () => doc.combat.hitDieOverride,        base: d.primaryClass?.hitDie ?? 8, set: v => x => { x.combat.hitDieOverride = v; }, noteKey: "hitDie" },
+    passivePerception:    { label: "Passive Perception",    type: "number", get: () => doc.combat.passiveOverrides?.perception,    base: 10 + d.skills.perception.modifier,    set: v => x => { x.combat.passiveOverrides = x.combat.passiveOverrides || {}; x.combat.passiveOverrides.perception = v; },    noteKey: "passivePerception" },
+    passiveInvestigation: { label: "Passive Investigation", type: "number", get: () => doc.combat.passiveOverrides?.investigation, base: 10 + d.skills.investigation.modifier, set: v => x => { x.combat.passiveOverrides = x.combat.passiveOverrides || {}; x.combat.passiveOverrides.investigation = v; }, noteKey: "passiveInvestigation" },
+    passiveInsight:       { label: "Passive Insight",       type: "number", get: () => doc.combat.passiveOverrides?.insight,       base: 10 + d.skills.insight.modifier,       set: v => x => { x.combat.passiveOverrides = x.combat.passiveOverrides || {}; x.combat.passiveOverrides.insight = v; },       noteKey: "passiveInsight" },
     spellSaveDC:   { label: "Spell Save DC",        type: "number", get: () => doc.spellcasting.saveDcOverride,  base: d.spellSaveDC,   set: v => x => { x.spellcasting.saveDcOverride = v; } },
     spellAttack:   { label: "Spell Attack",         type: "number", get: () => doc.spellcasting.attackOverride,  base: d.spellAttack,   set: v => x => { x.spellcasting.attackOverride = v; } },
     spellAbility:  { label: "Spellcasting Ability", type: "ability", get: () => doc.spellcasting.abilityOverride, base: d.primaryClass?.spellcasting?.ability || "—", set: v => x => { x.spellcasting.abilityOverride = v || null; } }
@@ -160,11 +218,8 @@ function openOverrideFor(store, target) {
     const k = abMatch[1];
     const base = (doc.abilityScores.base?.[k] ?? 10) + (d.resolvedRace?.abilityBonuses?.[k] ?? 0) + (doc.abilityScores.asiBonuses?.[k] ?? 0);
     openOverridePopover({
-      anchorEl: target,
-      label: `${k.toUpperCase()} Override`,
-      type: "number",
-      currentValue: doc.abilityScores.override?.[k],
-      baseHint: base,
+      anchorEl: target, label: `${k.toUpperCase()} Override`, type: "number",
+      currentValue: doc.abilityScores.override?.[k], baseHint: base,
       onSave: v => store.update(x => {
         x.abilityScores.override = x.abilityScores.override || {};
         if (v == null) delete x.abilityScores.override[k];
@@ -181,15 +236,23 @@ function openOverrideFor(store, target) {
     const sk = d.skills[id];
     if (!sk) return;
     openOverridePopover({
-      anchorEl: target,
-      label: `${sk.name} Override`,
-      type: "number",
+      anchorEl: target, label: `${sk.name} Override`, type: "number",
       currentValue: doc.proficiencies.skillOverrides?.[id],
       baseHint: sk.overridden ? "—" : sk.modifier,
       onSave: v => store.update(x => {
         x.proficiencies.skillOverrides = x.proficiencies.skillOverrides || {};
         if (v == null) delete x.proficiencies.skillOverrides[id];
         else x.proficiencies.skillOverrides[id] = v;
+      }),
+      currentNote:   doc.proficiencies?.skillNotes?.[id],
+      onSaveNote:    note => store.update(x => {
+        x.proficiencies.skillNotes = x.proficiencies.skillNotes || {};
+        if (!note) delete x.proficiencies.skillNotes[id]; else x.proficiencies.skillNotes[id] = note;
+      }),
+      currentSource: doc.proficiencies?.skillSources?.[id],
+      onSaveSource:  src => store.update(x => {
+        x.proficiencies.skillSources = x.proficiencies.skillSources || {};
+        if (!src) delete x.proficiencies.skillSources[id]; else x.proficiencies.skillSources[id] = src;
       })
     });
     return;
@@ -200,15 +263,23 @@ function openOverrideFor(store, target) {
   if (svMatch) {
     const k = svMatch[1];
     openOverridePopover({
-      anchorEl: target,
-      label: `${k.toUpperCase()} Save Override`,
-      type: "number",
+      anchorEl: target, label: `${k.toUpperCase()} Save Override`, type: "number",
       currentValue: doc.proficiencies.saveOverrides?.[k],
       baseHint: d.saves[k].overridden ? "—" : d.saves[k].modifier,
       onSave: v => store.update(x => {
         x.proficiencies.saveOverrides = x.proficiencies.saveOverrides || {};
         if (v == null) delete x.proficiencies.saveOverrides[k];
         else x.proficiencies.saveOverrides[k] = v;
+      }),
+      currentNote:   doc.proficiencies?.saveNotes?.[k],
+      onSaveNote:    note => store.update(x => {
+        x.proficiencies.saveNotes = x.proficiencies.saveNotes || {};
+        if (!note) delete x.proficiencies.saveNotes[k]; else x.proficiencies.saveNotes[k] = note;
+      }),
+      currentSource: doc.proficiencies?.saveSources?.[k],
+      onSaveSource:  src => store.update(x => {
+        x.proficiencies.saveSources = x.proficiencies.saveSources || {};
+        if (!src) delete x.proficiencies.saveSources[k]; else x.proficiencies.saveSources[k] = src;
       })
     });
     return;
@@ -217,12 +288,15 @@ function openOverrideFor(store, target) {
   const def = defs[path];
   if (!def) return;
   openOverridePopover({
-    anchorEl: target,
-    label: def.label,
-    type: def.type,
-    currentValue: def.get(),
-    baseHint: def.base,
-    onSave: v => store.update(def.set(v))
+    anchorEl: target, label: def.label, type: def.type,
+    currentValue: def.get(), baseHint: def.base,
+    onSave: v => store.update(def.set(v)),
+    ...(def.noteKey ? {
+      currentNote:   doc.combat.statNotes?.[def.noteKey],
+      onSaveNote:    statNoteSave(def.noteKey),
+      currentSource: doc.combat.statSources?.[def.noteKey],
+      onSaveSource:  statSrcSave(def.noteKey)
+    } : {})
   });
 }
 
@@ -240,6 +314,11 @@ function tabBtn(id, label, state, rerender, disabled = false) {
 
 function renderOverviewTab(store) {
   const d = store.derived;
+  const sc = store.doc.spellcasting;
+  const showSpellcasting = d.primaryClass?.spellcasting
+    || sc.abilityOverride
+    || (sc.custom?.length ?? 0) > 0
+    || (sc.knownSpells?.length ?? 0) > 0;
 
   return el("div", { class: "sheet__grid" },
     // Left column
@@ -256,7 +335,7 @@ function renderOverviewTab(store) {
     el("div", { class: "col col--right" },
       renderHpBar(store),
       renderCombatQuick(store),
-      d.primaryClass?.spellcasting ? renderSpellcastingQuick(store) : null
+      showSpellcasting ? renderSpellcastingQuick(store) : null
     )
   );
 }
@@ -265,7 +344,7 @@ function statBlock(store) {
   const d = store.derived;
   const doc = store.doc;
 
-  const row = (label, value, tip, overridePath, overridden) => {
+  const row = (label, value, tip, overridePath, overridden, statKey) => {
     const attrs = { class: "stat-pair" };
     if (overridePath) {
       attrs["data-override-path"] = overridePath;
@@ -275,18 +354,29 @@ function statBlock(store) {
       el("div", { class: "stat-pair__label" }, label),
       el("div", { class: "stat-pair__value" }, value)
     );
-    if (tip) bindTooltip(r, tip);
+    if (tip) {
+      const note   = statKey ? (doc.combat.statNotes?.[statKey] || null) : null;
+      const source = statKey ? (doc.combat.statSources?.[statKey] || null) : null;
+      if (note || source) {
+        bindTooltip(r, {
+          title: tip.title,
+          html: buildTooltipHtml({ baseText: tip.summary, acquiredFrom: source, userNotes: note })
+        });
+      } else {
+        bindTooltip(r, tip);
+      }
+    }
     return r;
   };
 
   return el("div", { class: "panel panel--stats" },
     el("div", { class: "stat-pair-grid" },
-      row("AC", d.ac, { title: "Armor Class", summary: "Base AC. Auto-calculated from equipped armor, shield, and ability modifiers." }, "ac", doc.combat.acOverride != null),
-      row("Initiative", fmt(d.initiative), { title: "Initiative", summary: `DEX mod${doc.combat.initiativeBonus ? " + " + doc.combat.initiativeBonus : ""}.` }, "initiative", doc.combat.initiativeOverride != null),
-      row("Speed", `${d.speed} ft`, { title: "Speed", summary: "Walking speed in feet." }, "speed", doc.combat.speedOverride != null),
-      row("Prof. Bonus", `+${d.profBonus}`, { title: "Proficiency Bonus", summary: `+${d.profBonus} at level ${d.totalLevel}.` }, "profBonus", doc.combat.profBonusOverride != null),
-      row("Passive Perception", d.passivePerception, { title: "Passive Perception", summary: "10 + Perception modifier." }, "passivePerception", doc.combat.passiveOverrides?.perception != null),
-      row("Hit Dice", `${Math.max(0, d.totalLevel - (doc.combat.hitDiceUsed?.[`d${d.hitDie}`] || 0))} / ${d.totalLevel} d${d.hitDie}`, { title: "Hit Dice", summary: "Spent on short rests to recover HP." }, "hitDie", doc.combat.hitDieOverride != null),
+      row("AC", d.ac, { title: "Armor Class", summary: "Base AC. Auto-calculated from equipped armor, shield, and ability modifiers." }, "ac", doc.combat.acOverride != null, "ac"),
+      row("Initiative", fmt(d.initiative), { title: "Initiative", summary: `DEX mod${doc.combat.initiativeBonus ? " + " + doc.combat.initiativeBonus : ""}.` }, "initiative", doc.combat.initiativeOverride != null, "initiative"),
+      row("Speed", `${d.speed} ft`, { title: "Speed", summary: "Walking speed in feet." }, "speed", doc.combat.speedOverride != null, "speed"),
+      row("Prof. Bonus", `+${d.profBonus}`, { title: "Proficiency Bonus", summary: `+${d.profBonus} at level ${d.totalLevel}.` }, "profBonus", doc.combat.profBonusOverride != null, "profBonus"),
+      row("Passive Perception", d.passivePerception, { title: "Passive Perception", summary: "10 + Perception modifier." }, "passivePerception", doc.combat.passiveOverrides?.perception != null, "passivePerception"),
+      row("Hit Dice", `${Math.max(0, d.totalLevel - (doc.combat.hitDiceUsed?.[`d${d.hitDie}`] || 0))} / ${d.totalLevel} d${d.hitDie}`, { title: "Hit Dice", summary: "Spent on short rests to recover HP." }, "hitDie", doc.combat.hitDieOverride != null, "hitDie"),
     )
   );
 }

@@ -72,7 +72,8 @@ UI components render from { store.doc, store.derived }
 | `js/ui/screens/` | Full-page screens: `roster.js`, `creator.js`, `sheet.js`. |
 | `js/ui/components/homebrewForm.js` | `openHomebrewForm({ schema, initial?, onSave })` — generic modal form builder driven by a schema object. |
 | `js/ui/components/detailModals.js` | `openSpellDetail`, `openItemDetail`, `openFeatureDetail` — click-to-view modals with source/notes editors and edit/revert buttons. |
-| `js/ui/components/overridePopover.js` | `openOverridePopover(opts)` — floating popover for stat overrides, anchored to a DOM element. |
+| `js/ui/components/existingCharacterForm.js` | `openExistingCharacterForm()` — modal for adding an already-established character (name + level only; everything else filled in on the sheet). |
+| `js/ui/components/overridePopover.js` | `openOverridePopover(opts)` — floating popover for stat overrides, anchored to a DOM element. Supports `type: "select"` (with `options`), and optional `currentNote`/`onSaveNote`/`currentSource`/`onSaveSource` for per-stat notes. |
 | `js/ui/components/provenance.js` | `buildTooltipHtml({ baseText, sources, acquiredFrom, userNotes })` — central tooltip HTML builder. `buildSourceHtml(baseText, sources)` is a backwards-compat alias. |
 | `js/ui/components/tooltip.js` | `bindTooltip(el, opts)` — attaches hover (desktop) and long-press (touch) tooltip to an element. |
 | `js/ui/components/` | All other reusable components. Most take `store` (CharacterStore) as first arg. |
@@ -105,6 +106,10 @@ UI components render from { store.doc, store.derived }
     armor, weapons, tools, languages: [],
     skillOverrides:   { [skillId]: number },   // fixed override bypasses formula
     saveOverrides:    { [abilityKey]: number },
+    skillNotes:       { [skillId]: string },   // user notes shown on hover
+    skillSources:     { [skillId]: string },   // "Acquired from" labels
+    saveNotes:        { [abilityKey]: string },
+    saveSources:      { [abilityKey]: string },
     langMeta:         { [lang]:    { source, notes } },  // provenance for manual languages
     armorMeta:        { [name]:   { source, notes } },
     weaponMeta:       { [name]:   { source, notes } },
@@ -125,6 +130,9 @@ UI components render from { store.doc, store.derived }
     acOverride, initiativeOverride, initiativeBonus, speedOverride,
     profBonusOverride, hitDieOverride,
     passiveOverrides: { perception, investigation, insight },
+    // Per-stat notes/sources (shown in hover tooltip):
+    statNotes:        { [statKey]: string },   // keys: ac, initiative, speed, profBonus, hitDie, passivePerception, passiveInvestigation, passiveInsight
+    statSources:      { [statKey]: string },   // same keys
     // Attack overrides & custom attacks:
     customAttacks:    [{ id, name, atkAbility, damage, damageType, range, properties[], notes }],
     attackOverrides:  { [instanceId]: { name?, atkAbility?, damage?, damageType?, range?, properties?, notes? } }
@@ -185,19 +193,31 @@ Every SRD-derived value can be overridden. Override buckets are stored on the ra
 - **Content overrides** (spell fields, item fields, feature fields, attack stats): stored in separate `*Overrides` buckets, merged onto the base record at render time.
 - Use `pickOverride(override, fallback)` in `derive.js` — returns the override only when it is non-null, non-undefined, and non-"".
 
-### Edit mode gating
-The sheet header has a `✎ Edit Stats` / `✓ Editing` toggle. The root `.sheet` element gets `data-edit-mode="on"` when active.
+### Always-on editing (no Edit Stats toggle)
+The sheet has **no edit-mode toggle**. `data-edit-mode="on"` is hardcoded on the root `.sheet` element so all editing affordances are always visible. The CSS classes `btn--edit-only`, `.add-inline`, `.chip__x`, and `[data-override-path]` dashed outlines are all permanently active.
 
-Add `btn--edit-only` class to any element that should only appear in edit mode:
-```css
-/* phase1.css already has: */
-.btn--edit-only           { display: none !important; }
-div.btn--edit-only        { display: none !important; }
-.sheet[data-edit-mode="on"] .btn--edit-only     { display: inline-flex !important; }
-.sheet[data-edit-mode="on"] div.btn--edit-only  { display: flex !important; }
-```
+`btn--edit-only` elements (and their `div` wrappers) are always `display: inline-flex / flex`. New code should not assume any gating — just render controls directly.
 
 The global click delegate on the root element routes `[data-override-path]` attribute clicks to `openOverrideFor()`, which maps the path token to the correct popover config. It skips `button`, `input`, `select`, `textarea`, `a` descendants so interactive children fire normally.
+
+**Identity fields in the sheet header** — Level, Race, Class, and Alignment are rendered as clickable `<span data-override-path="identity.*">` elements in `.sheet__subtitle`. Clicking them opens an `openOverridePopover` with:
+- `identity.level` → number input → sets `progression.classes[0].level`
+- `identity.alignment` → select dropdown → sets `identity.alignment`
+- `identity.race` → select from `listRaces()` → sets `race.raceId` / `race.subraceId`
+- `identity.class` → select from `CLASS_IDS` → sets `progression.classes[0].classId` and auto-picks first subclass if its unlock level ≤ character level
+
+### Override popover with notes
+`openOverridePopover` accepts optional note/source fields for any stat:
+```js
+openOverridePopover({
+  anchorEl, label, type,         // "number" | "text" | "ability" | "select"
+  currentValue, baseHint, onSave,
+  options,                       // [{value, label}] — required when type="select"
+  currentNote, onSaveNote,       // note textarea shown in hover tooltip
+  currentSource, onSaveSource    // source input shown in hover tooltip
+});
+```
+When `onSaveNote` / `onSaveSource` are provided the popover renders Source and Notes fields below the main input. Clear resets all three (value, note, source) to null. Notes/sources are stored in `combat.statNotes`, `combat.statSources`, `proficiencies.skillNotes`, `proficiencies.skillSources`, `proficiencies.saveNotes`, `proficiencies.saveSources` and are displayed via `buildTooltipHtml` in the stat's hover tooltip.
 
 ### Stable feature IDs
 Feature IDs are slug-based so overrides survive level-ups:
@@ -282,6 +302,6 @@ SRD 5.1 only. What this means practically:
 
 ## Phased delivery
 
-- **Phase 1 (done):** Roster, creator (standard array), full sheet with 6 tabs (Overview, Combat, Spells, Inventory, Features, Lore), export/import, full stat overrides, custom spells/items/features/attacks, provenance tooltips, source+notes on everything, edit-mode gating, languages/proficiencies editable
+- **Phase 1 (done):** Roster, creator (standard array), full sheet with 6 tabs (Overview, Combat, Spells, Inventory, Features, Lore), export/import, full stat overrides, custom spells/items/features/attacks, provenance tooltips, source+notes on everything (including per-stat notes/sources in override popovers), always-on inline editing (no edit-mode toggle), "Existing Character" quick-entry flow (name + level → blank sheet), identity editing from sheet header (class/race/alignment/level dropdowns), languages/proficiencies editable
 - **Phase 2:** Level-up flow, conditions tracker with rule tooltips, point buy ability scores, full lore section, action economy from class features (Second Wind, etc.)
 - **Phase 3:** Multiclassing, print/PDF view, service worker for offline install, dice roll animations

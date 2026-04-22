@@ -4,6 +4,7 @@ import { deleteCharacter } from "../../storage/idbStore.js";
 import { exportCharacterAsJson, importCharacterFromFile, pickJsonFile } from "../../storage/exportImport.js";
 import { navigate } from "../router.js";
 import { toast } from "../components/toast.js";
+import { openExistingCharacterForm } from "../components/existingCharacterForm.js";
 import { ALIGNMENTS } from "../../data/rules.js";
 
 const alignmentName = (id) => (ALIGNMENTS.find(a => a.id === id)?.name) || id || "";
@@ -22,6 +23,11 @@ export function renderRoster(mount) {
       class: "btn btn--primary",
       onclick: () => navigate("/creator")
     }, "+ New Character"),
+    el("button", {
+      class: "btn btn--primary",
+      title: "Skip the wizard — start from a blank sheet for a character you already have",
+      onclick: () => openExistingCharacterForm()
+    }, "+ Existing Character"),
     el("button", {
       class: "btn btn--ghost",
       onclick: async () => {

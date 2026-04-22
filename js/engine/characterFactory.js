@@ -52,6 +52,10 @@ export function blankCharacter(partial = {}) {
       languages: [],
       skillOverrides: {},
       saveOverrides: {},
+      skillNotes: {},
+      skillSources: {},
+      saveNotes: {},
+      saveSources: {},
       ...(partial.proficiencies || {})
     },
 
@@ -78,6 +82,8 @@ export function blankCharacter(partial = {}) {
       attackOverrides: {},
       customActions: [],
       hitDiceExtra: 0,
+      statNotes: {},
+      statSources: {},
       ...(partial.combat || {})
     },
 
