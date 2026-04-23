@@ -1,6 +1,6 @@
 import { uuid } from "../util/id.js";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export function blankCharacter(partial = {}) {
   const now = new Date().toISOString();
@@ -130,7 +130,13 @@ export function blankCharacter(partial = {}) {
       deities: [],
       enemies: [],
       quests: [],
+      sideQuests: [],
       locations: [],
+      maps: [],
+      npcs: [],
+      bestiary: [],
+      history: "",
+      worldLore: "",
       notes: "",
       ...(partial.lore || {})
     },

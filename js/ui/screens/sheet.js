@@ -111,7 +111,7 @@ function renderSheetChrome(store, state, rerender) {
     tabBtn("spells",   "Spells",   state, rerender),
     tabBtn("inventory","Inventory",state, rerender),
     tabBtn("features", "Features", state, rerender),
-    tabBtn("lore",     "Lore",     state, rerender),
+    tabBtn("codex",    "Codex",    state, rerender),
   );
 
   let body;
@@ -120,7 +120,7 @@ function renderSheetChrome(store, state, rerender) {
     case "spells":    body = renderSpellsTab(store); break;
     case "inventory": body = renderInventoryTab(store); break;
     case "features":  body = renderFeaturesTab(store); break;
-    case "lore":      body = renderLoreTab(store); break;
+    case "codex":     body = renderCodexTab(store, state, rerender); break;
     default:          body = renderOverviewTab(store);
   }
 
@@ -1446,22 +1446,199 @@ function promptAdd({ title, placeholder, onSave }) {
   });
 }
 
-/* ─────────────────────── lore tab ─────────────────────── */
+/* ─────────────────────── codex tab ─────────────────────── */
 
-function renderLoreTab(store) {
+const CODEX_SECTIONS = [
+  { id: "character",    title: "The Hero",     flourish: "I"    },
+  { id: "party",        title: "Fellowship",   flourish: "II"   },
+  { id: "sessions",     title: "Session Log",  flourish: "III"  },
+  { id: "quests",       title: "Quests",       flourish: "IV"   },
+  { id: "sidequests",   title: "Side Quests",  flourish: "V"    },
+  { id: "npcs",         title: "People",       flourish: "VI"   },
+  { id: "places",       title: "Places",       flourish: "VII"  },
+  { id: "maps",         title: "Maps",         flourish: "VIII" },
+  { id: "factions",     title: "Factions",     flourish: "IX"   },
+  { id: "gods",         title: "Gods & Faiths",flourish: "X"    },
+  { id: "bestiary",     title: "Bestiary",     flourish: "XI"   },
+  { id: "history",      title: "History",      flourish: "XII"  },
+  { id: "worldlore",    title: "World Lore",   flourish: "XIII" },
+  { id: "journal",      title: "Journal",      flourish: "XIV"  },
+];
+
+function renderCodexTab(store, state, rerender) {
+  if (!state.codexPage) state.codexPage = "character";
+  const currentIdx = Math.max(0, CODEX_SECTIONS.findIndex(s => s.id === state.codexPage));
+  const current = CODEX_SECTIONS[currentIdx];
+
+  const goto = (id) => { state.codexPage = id; rerender(); };
+  const prev = () => { if (currentIdx > 0) goto(CODEX_SECTIONS[currentIdx - 1].id); };
+  const next = () => { if (currentIdx < CODEX_SECTIONS.length - 1) goto(CODEX_SECTIONS[currentIdx + 1].id); };
+
+  const toc = el("nav", { class: "codex__toc" },
+    ...CODEX_SECTIONS.map(s =>
+      el("button", {
+        class: "codex__toc-item" + (s.id === current.id ? " is-active" : ""),
+        onclick: () => goto(s.id)
+      },
+        el("span", { class: "codex__toc-num" }, s.flourish),
+        el("span", { class: "codex__toc-title" }, s.title)
+      )
+    )
+  );
+
+  const page = el("article", { class: "codex__page" });
+  renderCodexPage(page, current.id, store);
+
+  const header = el("header", { class: "codex__page-header" },
+    el("span", { class: "codex__page-num" }, current.flourish),
+    el("h2", { class: "codex__page-title" }, current.title),
+    el("span", { class: "codex__page-meta" }, `Page ${currentIdx + 1} of ${CODEX_SECTIONS.length}`)
+  );
+
+  const controls = el("div", { class: "codex__controls" },
+    el("button", {
+      class: "codex__nav codex__nav--prev",
+      disabled: currentIdx === 0,
+      "aria-label": "Previous page",
+      onclick: prev
+    }, "‹"),
+    el("div", { class: "codex__dots" },
+      ...CODEX_SECTIONS.map((s, i) => el("button", {
+        class: "codex__dot" + (i === currentIdx ? " is-active" : ""),
+        onclick: () => goto(s.id),
+        "aria-label": s.title
+      }))
+    ),
+    el("button", {
+      class: "codex__nav codex__nav--next",
+      disabled: currentIdx === CODEX_SECTIONS.length - 1,
+      "aria-label": "Next page",
+      onclick: next
+    }, "›")
+  );
+
+  const spread = el("div", { class: "codex__spread" },
+    toc,
+    el("div", { class: "codex__book" },
+      header,
+      page,
+      controls
+    )
+  );
+
+  // Touch swipe support
+  let touchStartX = null;
+  page.addEventListener("touchstart", e => { touchStartX = e.touches[0].clientX; }, { passive: true });
+  page.addEventListener("touchend", e => {
+    if (touchStartX == null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    touchStartX = null;
+    if (Math.abs(dx) < 60) return;
+    if (dx < 0) next(); else prev();
+  });
+
+  return el("div", { class: "codex" }, spread);
+}
+
+function renderCodexPage(root, id, store) {
+  clear(root);
+  switch (id) {
+    case "character":  root.append(...codexCharacterPage(store)); break;
+    case "party":      root.append(...codexPartyPage(store)); break;
+    case "sessions":   root.append(...codexSessionsPage(store)); break;
+    case "quests":     root.append(...codexListPage(store, QUEST_CFG)); break;
+    case "sidequests": root.append(...codexListPage(store, SIDEQUEST_CFG)); break;
+    case "npcs":       root.append(...codexListPage(store, NPC_CFG)); break;
+    case "places":     root.append(...codexListPage(store, PLACE_CFG)); break;
+    case "maps":       root.append(...codexMapsPage(store)); break;
+    case "factions":   root.append(...codexListPage(store, FACTION_CFG)); break;
+    case "gods":       root.append(...codexListPage(store, GOD_CFG)); break;
+    case "bestiary":   root.append(...codexListPage(store, BEAST_CFG)); break;
+    case "history":    root.append(...codexProseTextPage(store, "history", "Campaign History", "Chronicle the campaign's events, past and present — the deeds of heroes and villains, the rise and fall of nations.")); break;
+    case "worldlore":  root.append(...codexProseTextPage(store, "worldLore", "World Lore", "Legends, myths, cosmology, magic — the fabric of the world as your character knows it.")); break;
+    case "journal":    root.append(...codexJournalPage(store)); break;
+  }
+}
+
+/* ── helpers ── */
+
+function codexParchmentNote(text) {
+  return el("p", { class: "codex__intro" }, text);
+}
+
+function codexSectionDivider() {
+  return el("div", { class: "codex__divider", "aria-hidden": "true" }, "✦ ✦ ✦");
+}
+
+function codexAddBtn(label, onClick) {
+  return el("button", { class: "codex__add", onclick: onClick },
+    el("span", { class: "codex__add-plus" }, "+"),
+    label
+  );
+}
+
+function codexEmptyState(text) {
+  return el("div", { class: "codex__empty" }, text);
+}
+
+function codexTextField(label, value, onChange, opts = {}) {
+  const inp = el("input", {
+    type: opts.type || "text",
+    value: value ?? "",
+    placeholder: opts.placeholder || "",
+    onchange: e => onChange(opts.type === "number" ? (parseInt(e.target.value, 10) || null) : e.target.value)
+  });
+  return el("label", { class: "codex__field" + (opts.full ? " codex__field--full" : "") },
+    el("span", { class: "codex__field-label" }, label),
+    inp
+  );
+}
+
+function codexTextareaField(label, value, onChange, rows = 5) {
+  return el("label", { class: "codex__field codex__field--full" },
+    el("span", { class: "codex__field-label" }, label),
+    el("textarea", {
+      rows,
+      onchange: e => onChange(e.target.value)
+    }, value || "")
+  );
+}
+
+function codexSelectField(label, value, options, onChange) {
+  const sel = el("select", {
+    onchange: e => onChange(e.target.value)
+  }, ...options.map(o => {
+    const opt = el("option", { value: o.value }, o.label);
+    if (o.value === (value ?? "")) opt.selected = true;
+    return opt;
+  }));
+  return el("label", { class: "codex__field" },
+    el("span", { class: "codex__field-label" }, label),
+    sel
+  );
+}
+
+function codexProseTextarea(lorePath, store, placeholder) {
+  return el("textarea", {
+    class: "codex__prose",
+    rows: 14,
+    placeholder: placeholder || "",
+    onchange: e => store.update(x => { x.lore[lorePath] = e.target.value; })
+  }, store.doc.lore[lorePath] || "");
+}
+
+/* ── character page ── */
+
+function codexCharacterPage(store) {
   const doc = store.doc;
   const lore = doc.lore;
-
   const ARRAY_KEYS = new Set(["personalityTraits","ideals","bonds","flaws"]);
-  const loreValue = (key) => {
-    const v = lore[key];
-    if (Array.isArray(v)) return v.join("\n");
-    return v || "";
-  };
-  const textarea = (label, key) => el("label", { class: "field field--full" },
-    el("div", { class: "field__label" }, label),
+  const arrToText = (v) => Array.isArray(v) ? v.join("\n") : (v || "");
+
+  const field = (label, key, rows = 3) => el("label", { class: "codex__field codex__field--full" },
+    el("span", { class: "codex__field-label" }, label),
     el("textarea", {
-      rows: 4,
+      rows,
       onchange: e => store.update(x => {
         if (ARRAY_KEYS.has(key)) {
           x.lore[key] = e.target.value.split("\n").map(s => s.trim()).filter(Boolean);
@@ -1469,43 +1646,419 @@ function renderLoreTab(store) {
           x.lore[key] = e.target.value;
         }
       })
-    }, loreValue(key))
+    }, arrToText(lore[key]))
   );
 
-  return el("div", { class: "sheet__grid" },
-    el("div", { class: "col col--wide" },
-      el("div", { class: "panel" },
-        el("h3", {}, "Backstory"),
-        textarea("Backstory", "backstory")
-      ),
-      el("div", { class: "panel" },
-        el("h3", {}, "Personality"),
-        textarea("Personality Traits", "personalityTraits"),
-        textarea("Ideals", "ideals"),
-        textarea("Bonds", "bonds"),
-        textarea("Flaws", "flaws"),
-      ),
-      el("div", { class: "panel" },
-        el("h3", {}, "Notes"),
-        textarea("Notes", "notes")
-      )
-    ),
-    el("div", { class: "col col--side" },
-      el("div", { class: "panel" },
-        el("h3", {}, "Appearance"),
-        ...["age","height","weight","eyes","hair","skin","gender"].map(k =>
-          el("label", { class: "field" },
-            el("div", { class: "field__label" }, k[0].toUpperCase() + k.slice(1)),
-            el("input", {
-              type: k === "age" ? "number" : "text",
-              value: doc.identity[k] ?? "",
-              onchange: e => store.update(x => {
-                x.identity[k] = k === "age" ? (parseInt(e.target.value, 10) || null) : e.target.value;
-              })
-            })
-          )
-        )
+  const appearanceRow = el("div", { class: "codex__grid codex__grid--appearance" },
+    ...["age","height","weight","eyes","hair","skin","gender"].map(k =>
+      codexTextField(
+        k[0].toUpperCase() + k.slice(1),
+        doc.identity[k] ?? "",
+        (v) => store.update(x => { x.identity[k] = k === "age" ? (v === "" ? null : (parseInt(v, 10) || null)) : v; }),
+        { type: k === "age" ? "number" : "text" }
       )
     )
   );
+
+  return [
+    codexParchmentNote(`Here begins the tale of ${doc.identity.name || "our hero"}.`),
+    el("section", { class: "codex__section" },
+      el("h3", { class: "codex__subhead" }, "Backstory"),
+      field("", "backstory", 8)
+    ),
+    codexSectionDivider(),
+    el("section", { class: "codex__section" },
+      el("h3", { class: "codex__subhead" }, "Bearing & Appearance"),
+      appearanceRow
+    ),
+    codexSectionDivider(),
+    el("section", { class: "codex__section" },
+      el("h3", { class: "codex__subhead" }, "Of the Spirit"),
+      el("p", { class: "codex__hint" }, "One per line."),
+      field("Personality Traits", "personalityTraits", 3),
+      field("Ideals", "ideals", 3),
+      field("Bonds", "bonds", 3),
+      field("Flaws", "flaws", 3),
+    ),
+  ];
+}
+
+/* ── party page ── */
+
+function codexPartyPage(store) {
+  const doc = store.doc;
+  const party = doc.party || [];
+
+  const card = (m, idx) => el("div", { class: "codex__card" },
+    el("div", { class: "codex__card-head" },
+      el("input", {
+        class: "codex__card-title-input",
+        value: m.name || "",
+        placeholder: "Name",
+        onchange: e => store.update(x => { x.party[idx].name = e.target.value; })
+      }),
+      el("button", {
+        class: "codex__card-remove",
+        title: "Remove",
+        onclick: () => store.update(x => { x.party.splice(idx, 1); })
+      }, "✕")
+    ),
+    el("div", { class: "codex__grid codex__grid--2" },
+      codexTextField("Player", m.playerName || "", v => store.update(x => { x.party[idx].playerName = v; })),
+      codexTextField("Race", m.race || "", v => store.update(x => { x.party[idx].race = v; })),
+      codexTextField("Class", m.class || "", v => store.update(x => { x.party[idx].class = v; })),
+      codexTextField("Level", m.level ?? "", v => store.update(x => { x.party[idx].level = v; }), { type: "number" }),
+    ),
+    codexTextareaField("Notes", m.notes || "", v => store.update(x => { x.party[idx].notes = v; }), 3)
+  );
+
+  return [
+    codexParchmentNote("Those who walk this road beside you."),
+    party.length === 0
+      ? codexEmptyState("No companions recorded yet.")
+      : el("div", { class: "codex__cards" }, ...party.map(card)),
+    codexAddBtn("Add Companion", () => store.update(x => {
+      x.party = x.party || [];
+      x.party.push({ name: "", playerName: "", race: "", class: "", level: 1, notes: "" });
+    })),
+  ];
+}
+
+/* ── sessions page ── */
+
+function codexSessionsPage(store) {
+  const doc = store.doc;
+  const log = doc.sessionLog || [];
+
+  const card = (entry) => {
+    const idx = doc.sessionLog.findIndex(s => s.id === entry.id);
+    return el("div", { class: "codex__card codex__card--session" },
+      el("div", { class: "codex__card-head" },
+        el("input", {
+          class: "codex__card-num",
+          type: "number",
+          value: entry.sessionNumber ?? "",
+          placeholder: "#",
+          title: "Session #",
+          onchange: e => store.update(x => { x.sessionLog[idx].sessionNumber = parseInt(e.target.value, 10) || null; })
+        }),
+        el("input", {
+          class: "codex__card-date",
+          type: "date",
+          value: entry.date || "",
+          onchange: e => store.update(x => { x.sessionLog[idx].date = e.target.value; })
+        }),
+        el("input", {
+          class: "codex__card-title-input",
+          value: entry.title || "",
+          placeholder: "Session title…",
+          onchange: e => store.update(x => { x.sessionLog[idx].title = e.target.value; })
+        }),
+        el("button", {
+          class: "codex__card-remove",
+          title: "Remove",
+          onclick: () => store.update(x => { x.sessionLog.splice(idx, 1); })
+        }, "✕")
+      ),
+      el("textarea", {
+        class: "codex__card-notes",
+        rows: 6,
+        placeholder: "What happened this session? Who did we meet? What treasures did we find?",
+        onchange: e => store.update(x => { x.sessionLog[idx].notes = e.target.value; })
+      }, entry.notes || "")
+    );
+  };
+
+  const sorted = [...log].sort((a, b) => {
+    const na = a.sessionNumber ?? -1;
+    const nb = b.sessionNumber ?? -1;
+    return nb - na;
+  });
+
+  return [
+    codexParchmentNote("The chronicle of our adventures, session by session."),
+    log.length === 0
+      ? codexEmptyState("No sessions recorded yet.")
+      : el("div", { class: "codex__cards" }, ...sorted.map(card)),
+    codexAddBtn("New Session", () => store.update(x => {
+      x.sessionLog = x.sessionLog || [];
+      const nextNum = Math.max(0, ...x.sessionLog.map(s => s.sessionNumber || 0)) + 1;
+      const today = new Date().toISOString().slice(0, 10);
+      x.sessionLog.push({ id: `sess-${uuid()}`, sessionNumber: nextNum, date: today, title: "", notes: "" });
+    })),
+  ];
+}
+
+/* ── generic list configs ── */
+
+const QUEST_CFG = {
+  arrayKey: "quests",
+  intro: "The paths we have sworn to walk.",
+  emptyText: "No quests recorded yet.",
+  addLabel: "New Quest",
+  blank: () => ({ id: `q-${uuid()}`, title: "", giver: "", status: "active", reward: "", description: "" }),
+  fields: [
+    { key: "title",       label: "Title",       type: "text", prominent: true, placeholder: "The name of the quest" },
+    { key: "giver",       label: "Quest Giver", type: "text" },
+    { key: "status",      label: "Status",      type: "select", options: [
+      { value: "active", label: "Active" },
+      { value: "in-progress", label: "In Progress" },
+      { value: "completed", label: "Completed" },
+      { value: "failed", label: "Failed" },
+      { value: "abandoned", label: "Abandoned" },
+    ]},
+    { key: "reward",      label: "Reward",      type: "text" },
+    { key: "description", label: "Description", type: "textarea", rows: 5, full: true },
+  ],
+};
+
+const SIDEQUEST_CFG = { ...QUEST_CFG,
+  arrayKey: "sideQuests",
+  intro: "Lesser errands and detours along the way.",
+  emptyText: "No side quests recorded yet.",
+  addLabel: "New Side Quest",
+  blank: () => ({ id: `sq-${uuid()}`, title: "", giver: "", status: "active", reward: "", description: "" }),
+};
+
+const NPC_CFG = {
+  arrayKey: "npcs",
+  intro: "The folk — kindred, cruel, and strange — that we have met upon the road.",
+  emptyText: "No people recorded yet.",
+  addLabel: "New Person",
+  blank: () => ({ id: `npc-${uuid()}`, name: "", race: "", role: "", location: "", relationship: "neutral", description: "" }),
+  fields: [
+    { key: "name",        label: "Name",        type: "text", prominent: true },
+    { key: "race",        label: "Race",        type: "text" },
+    { key: "role",        label: "Role / Title",type: "text" },
+    { key: "location",    label: "Last Seen",   type: "text" },
+    { key: "relationship",label: "Relationship",type: "select", options: [
+      { value: "ally", label: "Ally" },
+      { value: "friendly", label: "Friendly" },
+      { value: "neutral", label: "Neutral" },
+      { value: "rival", label: "Rival" },
+      { value: "enemy", label: "Enemy" },
+      { value: "unknown", label: "Unknown" },
+      { value: "deceased", label: "Deceased" },
+    ]},
+    { key: "description", label: "Notes",       type: "textarea", rows: 5, full: true },
+  ],
+};
+
+const PLACE_CFG = {
+  arrayKey: "locations",
+  intro: "Cities, ruins, wilds, and hidden halls.",
+  emptyText: "No places recorded yet.",
+  addLabel: "New Place",
+  blank: () => ({ id: `loc-${uuid()}`, name: "", region: "", type: "", description: "" }),
+  fields: [
+    { key: "name",        label: "Name",        type: "text", prominent: true },
+    { key: "region",      label: "Region",      type: "text" },
+    { key: "type",        label: "Type",        type: "text", placeholder: "City, ruin, forest…" },
+    { key: "description", label: "Description", type: "textarea", rows: 5, full: true },
+  ],
+};
+
+const FACTION_CFG = {
+  arrayKey: "organizations",
+  intro: "Guilds, cults, orders, and houses of power.",
+  emptyText: "No factions recorded yet.",
+  addLabel: "New Faction",
+  blank: () => ({ id: `fac-${uuid()}`, name: "", allegiance: "neutral", leader: "", description: "" }),
+  fields: [
+    { key: "name",        label: "Name",        type: "text", prominent: true },
+    { key: "leader",      label: "Leadership",  type: "text" },
+    { key: "allegiance",  label: "Allegiance",  type: "select", options: [
+      { value: "allied", label: "Allied" },
+      { value: "friendly", label: "Friendly" },
+      { value: "neutral", label: "Neutral" },
+      { value: "rival", label: "Rival" },
+      { value: "hostile", label: "Hostile" },
+      { value: "unknown", label: "Unknown" },
+    ]},
+    { key: "description", label: "Description", type: "textarea", rows: 5, full: true },
+  ],
+};
+
+const GOD_CFG = {
+  arrayKey: "deities",
+  intro: "The powers above — and below.",
+  emptyText: "No gods recorded yet.",
+  addLabel: "New Deity",
+  blank: () => ({ id: `god-${uuid()}`, name: "", domain: "", alignment: "", symbol: "", description: "" }),
+  fields: [
+    { key: "name",        label: "Name",        type: "text", prominent: true },
+    { key: "domain",      label: "Domain",      type: "text", placeholder: "War, Life, Trickery…" },
+    { key: "alignment",   label: "Alignment",   type: "text" },
+    { key: "symbol",      label: "Holy Symbol", type: "text" },
+    { key: "description", label: "Tenets & Lore",type: "textarea", rows: 5, full: true },
+  ],
+};
+
+const BEAST_CFG = {
+  arrayKey: "bestiary",
+  intro: "The beasts and horrors we have faced.",
+  emptyText: "No creatures recorded yet.",
+  addLabel: "New Creature",
+  blank: () => ({ id: `bst-${uuid()}`, name: "", threat: "", weakness: "", description: "" }),
+  fields: [
+    { key: "name",        label: "Name",         type: "text", prominent: true },
+    { key: "threat",      label: "Threat Level", type: "text", placeholder: "Trivial, Dangerous, Deadly…" },
+    { key: "weakness",    label: "Known Weakness",type: "text" },
+    { key: "description", label: "Notes",        type: "textarea", rows: 5, full: true },
+  ],
+};
+
+function codexListPage(store, cfg) {
+  const doc = store.doc;
+  const list = doc.lore[cfg.arrayKey] || [];
+
+  const renderField = (entry, idx, f) => {
+    const value = entry[f.key];
+    const onChange = (v) => store.update(x => {
+      x.lore[cfg.arrayKey][idx][f.key] = v;
+    });
+    if (f.type === "textarea") {
+      return codexTextareaField(f.label, value || "", onChange, f.rows || 4);
+    }
+    if (f.type === "select") {
+      return codexSelectField(f.label, value, f.options, onChange);
+    }
+    return codexTextField(f.label, value, onChange, { type: f.type, placeholder: f.placeholder });
+  };
+
+  const card = (entry) => {
+    const idx = doc.lore[cfg.arrayKey].findIndex(e => e.id === entry.id);
+    const prominent = cfg.fields.find(f => f.prominent);
+    const otherFields = cfg.fields.filter(f => !f.prominent && !f.full);
+    const fullFields = cfg.fields.filter(f => f.full);
+
+    const head = el("div", { class: "codex__card-head" },
+      prominent
+        ? el("input", {
+            class: "codex__card-title-input",
+            value: entry[prominent.key] || "",
+            placeholder: prominent.label,
+            onchange: e => store.update(x => { x.lore[cfg.arrayKey][idx][prominent.key] = e.target.value; })
+          })
+        : null,
+      el("button", {
+        class: "codex__card-remove",
+        title: "Remove",
+        onclick: () => store.update(x => { x.lore[cfg.arrayKey].splice(idx, 1); })
+      }, "✕")
+    );
+
+    const grid = otherFields.length
+      ? el("div", { class: "codex__grid codex__grid--2" }, ...otherFields.map(f => renderField(entry, idx, f)))
+      : null;
+
+    return el("div", { class: "codex__card" },
+      head,
+      grid,
+      ...fullFields.map(f => renderField(entry, idx, f))
+    );
+  };
+
+  return [
+    codexParchmentNote(cfg.intro),
+    list.length === 0
+      ? codexEmptyState(cfg.emptyText)
+      : el("div", { class: "codex__cards" }, ...list.map(card)),
+    codexAddBtn(cfg.addLabel, () => store.update(x => {
+      x.lore[cfg.arrayKey] = x.lore[cfg.arrayKey] || [];
+      x.lore[cfg.arrayKey].push(cfg.blank());
+    })),
+  ];
+}
+
+/* ── maps page ── */
+
+function codexMapsPage(store) {
+  const doc = store.doc;
+  const maps = doc.lore.maps || [];
+
+  const card = (m) => {
+    const idx = doc.lore.maps.findIndex(x => x.id === m.id);
+    const fileInput = el("input", {
+      type: "file",
+      accept: "image/*",
+      style: { display: "none" },
+      onchange: e => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          store.update(x => { x.lore.maps[idx].imageDataUrl = reader.result; });
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+    const imgBox = m.imageDataUrl
+      ? el("img", { class: "codex__map-img", src: m.imageDataUrl, alt: m.name || "Map" })
+      : el("div", { class: "codex__map-placeholder" }, "No image — click Upload");
+
+    return el("div", { class: "codex__card codex__card--map" },
+      el("div", { class: "codex__card-head" },
+        el("input", {
+          class: "codex__card-title-input",
+          value: m.name || "",
+          placeholder: "Map name",
+          onchange: e => store.update(x => { x.lore.maps[idx].name = e.target.value; })
+        }),
+        el("button", {
+          class: "codex__card-remove",
+          title: "Remove",
+          onclick: () => store.update(x => { x.lore.maps.splice(idx, 1); })
+        }, "✕")
+      ),
+      imgBox,
+      el("div", { class: "codex__map-actions" },
+        fileInput,
+        el("button", { class: "codex__btn", onclick: () => fileInput.click() }, m.imageDataUrl ? "Replace Image" : "Upload Image"),
+        m.imageDataUrl
+          ? el("button", { class: "codex__btn", onclick: () => store.update(x => { x.lore.maps[idx].imageDataUrl = null; }) }, "Remove Image")
+          : null
+      ),
+      codexTextField("Region", m.region || "", v => store.update(x => { x.lore.maps[idx].region = v; })),
+      codexTextareaField("Notes", m.notes || "", v => store.update(x => { x.lore.maps[idx].notes = v; }), 3)
+    );
+  };
+
+  return [
+    codexParchmentNote("Maps of the lands we have traveled."),
+    maps.length === 0
+      ? codexEmptyState("No maps yet. Add one to begin.")
+      : el("div", { class: "codex__cards codex__cards--maps" }, ...maps.map(card)),
+    codexAddBtn("New Map", () => store.update(x => {
+      x.lore.maps = x.lore.maps || [];
+      x.lore.maps.push({ id: `map-${uuid()}`, name: "", region: "", notes: "", imageDataUrl: null });
+    })),
+  ];
+}
+
+/* ── prose pages (history, worldLore) ── */
+
+function codexProseTextPage(store, key, heading, hint) {
+  return [
+    codexParchmentNote(hint),
+    el("section", { class: "codex__section" },
+      codexProseTextarea(key, store, `Write freely. ${heading}…`)
+    )
+  ];
+}
+
+/* ── journal notes page ── */
+
+function codexJournalPage(store) {
+  return [
+    codexParchmentNote("Your private journal. Thoughts, sketches, reminders — whatever you wish to record."),
+    el("section", { class: "codex__section" },
+      el("textarea", {
+        class: "codex__prose",
+        rows: 20,
+        placeholder: "Dear journal…",
+        onchange: e => store.update(x => { x.lore.notes = e.target.value; })
+      }, store.doc.lore.notes || "")
+    )
+  ];
 }

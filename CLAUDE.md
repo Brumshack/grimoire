@@ -48,7 +48,7 @@ UI components render from { store.doc, store.derived }
 - **Derived stats are never persisted.** AC, skill modifiers, spell DC, etc. are always recomputed by `deriveAll()` from the raw document. Only the raw character JSON is saved.
 - **SRD 5.1 only** (OGL 1.0a). All rule data is hand-authored static ES modules under `js/data/`. No API calls, no fetch at runtime.
 - **One subclass per class** in the data — the only subclass included for each class is the one published in the SRD.
-- **Schema versioning**: every character doc has `schemaVersion` (currently **3**). Bumping it requires:
+- **Schema versioning**: every character doc has `schemaVersion` (currently **4**). Bumping it requires:
   1. Incrementing `SCHEMA_VERSION` in `js/engine/characterFactory.js`
   2. Adding a migration function keyed by the *old* version in `js/engine/migrations.js`
   3. Adding new fields with defaults to `blankCharacter()` in `characterFactory.js`
@@ -82,11 +82,11 @@ UI components render from { store.doc, store.derived }
 
 ---
 
-## Character document schema (v3)
+## Character document schema (v4)
 
 ```
 {
-  schemaVersion: 3,
+  schemaVersion: 4,
   id, createdAt, updatedAt,
 
   identity:    { name, playerName, alignment, age, height, weight, eyes, hair, skin, gender, portraitDataUrl },
@@ -175,9 +175,22 @@ UI components render from { store.doc, store.derived }
     sources:   { [featureId]: string }    // "Acquired from" labels
   },
 
-  lore:       { backstory, personalityTraits[], ideals[], bonds[], flaws[], ... },
-  party:      [{ name, playerName, race, class, level }],
-  sessionLog: [{ id, date, sessionNumber, notes }],
+  lore: {
+    backstory, personalityTraits[], ideals[], bonds[], flaws[], notes,
+    // Codex buckets (all arrays of structured objects with `id`):
+    quests[]:        { id, title, giver, status, reward, description },
+    sideQuests[]:    { id, title, giver, status, reward, description },
+    npcs[]:          { id, name, race, role, location, relationship, description },
+    locations[]:     { id, name, region, type, description },
+    maps[]:          { id, name, region, notes, imageDataUrl },   // imageDataUrl is base64
+    organizations[]: { id, name, leader, allegiance, description },
+    deities[]:       { id, name, domain, alignment, symbol, description },
+    bestiary[]:      { id, name, threat, weakness, description },
+    allies[], enemies[],          // legacy v3 buckets, kept for back-compat; UI uses npcs/bestiary
+    history, worldLore            // long-form prose strings
+  },
+  party:      [{ name, playerName, race, class, level, notes }],
+  sessionLog: [{ id, date, sessionNumber, title, notes }],
   settings:   { hpLevelUpMethod, autoSaveEnabled }
 }
 ```
@@ -261,6 +274,20 @@ el("div", { class: "panel__header" },
 )
 ```
 
+### Codex tab pattern
+The Codex tab (`renderCodexTab` in `js/ui/screens/sheet.js`) is a journal-styled multi-page view with its own internal navigation. `CODEX_SECTIONS` drives the TOC, dot navigator, and prev/next chevrons. Current page lives on `state.codexPage` (keyed off the shared sheet `state` object so it survives re-renders).
+
+Three kinds of pages:
+1. **Single-form pages** (Hero): one page rendering existing `lore.*` strings/arrays.
+2. **List pages** (Quests, Side Quests, People, Places, Factions, Gods, Bestiary): driven by a `*_CFG` config (`QUEST_CFG`, `NPC_CFG`, …) with `arrayKey`, `blank()`, and `fields[]`. `codexListPage(store, cfg)` renders them generically — one config per bucket.
+3. **Prose pages** (History, World Lore, Journal): a single long `<textarea class="codex__prose">` bound to a `lore.*` string.
+
+All codex lists mutate via `store.update(x => x.lore[cfg.arrayKey].push(...))` and rely on the store's `"change"` → `rerender` hookup for UI refresh. Each entry has a stable `id` so index-based edits survive re-renders.
+
+Maps (`lore.maps[]`) store images as base64 data URLs in `imageDataUrl` — there's no file path or remote fetch. Large maps inflate the character doc, but keep everything local/portable.
+
+Styling lives in `css/phase1.css` under the `/* CODEX */` block — parchment gradients + ruled-line backgrounds, `.codex__book` as the page, `.codex__toc` as the ribbon sidebar, `.codex__card` for list entries (ruby left-border).
+
 ---
 
 ## Storage split
@@ -302,6 +329,6 @@ SRD 5.1 only. What this means practically:
 
 ## Phased delivery
 
-- **Phase 1 (done):** Roster, creator (standard array), full sheet with 6 tabs (Overview, Combat, Spells, Inventory, Features, Lore), export/import, full stat overrides, custom spells/items/features/attacks, provenance tooltips, source+notes on everything (including per-stat notes/sources in override popovers), always-on inline editing (no edit-mode toggle), "Existing Character" quick-entry flow (name + level → blank sheet), identity editing from sheet header (class/race/alignment/level dropdowns), languages/proficiencies editable
-- **Phase 2:** Level-up flow, conditions tracker with rule tooltips, point buy ability scores, full lore section, action economy from class features (Second Wind, etc.)
+- **Phase 1 (done):** Roster, creator (standard array), full sheet with 6 tabs (Overview, Combat, Spells, Inventory, Features, Codex), export/import, full stat overrides, custom spells/items/features/attacks, provenance tooltips, source+notes on everything (including per-stat notes/sources in override popovers), always-on inline editing (no edit-mode toggle), "Existing Character" quick-entry flow (name + level → blank sheet), identity editing from sheet header (class/race/alignment/level dropdowns), languages/proficiencies editable, journal-style Codex with 14 swipeable sections (Hero, Fellowship, Session Log, Quests, Side Quests, People, Places, Maps, Factions, Gods & Faiths, Bestiary, History, World Lore, Journal)
+- **Phase 2:** Level-up flow, conditions tracker with rule tooltips, point buy ability scores, action economy from class features (Second Wind, etc.)
 - **Phase 3:** Multiclassing, print/PDF view, service worker for offline install, dice roll animations

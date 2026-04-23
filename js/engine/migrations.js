@@ -38,6 +38,21 @@ const migrations = {
     doc.schemaVersion = 3;
     return doc;
   },
+
+  // v3 → v4: expand lore into full codex.
+  3: (doc) => {
+    doc.lore = doc.lore || {};
+    doc.lore.npcs       = doc.lore.npcs       || [];
+    doc.lore.sideQuests = doc.lore.sideQuests || [];
+    doc.lore.maps       = doc.lore.maps       || [];
+    doc.lore.bestiary   = doc.lore.bestiary   || [];
+    doc.lore.history    = doc.lore.history    || "";
+    doc.lore.worldLore  = doc.lore.worldLore  || "";
+    doc.sessionLog = doc.sessionLog || [];
+    doc.party = doc.party || [];
+    doc.schemaVersion = 4;
+    return doc;
+  },
 };
 
 export function migrate(doc) {
