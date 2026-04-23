@@ -106,26 +106,8 @@ function renderSheetChrome(store, state, rerender) {
     )
   );
 
-  const tabs = el("nav", { class: "sheet__tabs" },
-    tabBtn("overview", "Overview", state, rerender),
-    tabBtn("combat",   "Combat",   state, rerender),
-    tabBtn("spells",   "Spells",   state, rerender),
-    tabBtn("inventory","Inventory",state, rerender),
-    tabBtn("features", "Features", state, rerender),
-    tabBtn("codex",    "Codex",    state, rerender),
-  );
-
-  let body;
-  switch (state.tab) {
-    case "combat":    body = renderCombatTab(store); break;
-    case "spells":    body = renderSpellsTab(store); break;
-    case "inventory": body = renderInventoryTab(store); break;
-    case "features":  body = renderFeaturesTab(store); break;
-    case "codex":     body = renderCodexTab(store, state, rerender); break;
-    default:          body = renderOverviewTab(store, state, rerender);
-  }
-
-  return el("div", { class: "sheet", "data-edit-mode": "on" }, header, tabs, body);
+  const body = renderOverviewTab(store, state, rerender);
+  return el("div", { class: "sheet", "data-edit-mode": "on" }, header, body);
 }
 
 /* ─────────────────────── override routing ─────────────────────── */
@@ -309,14 +291,6 @@ function openOverrideFor(store, target) {
 }
 
 const sep = () => el("span", { class: "sep" }, "·");
-
-function tabBtn(id, label, state, rerender, disabled = false) {
-  return el("button", {
-    class: `sheet__tab ${state.tab === id ? "is-active" : ""}`,
-    type: "button", disabled,
-    onclick: () => { state.tab = id; rerender(); }
-  }, label);
-}
 
 /* ─────────────────────── hit dice panel (shared) ──────────────────────── */
 
@@ -516,7 +490,7 @@ const OVERVIEW_MAIN_TABS = [
   { id: "inventory",   label: "Inventory" },
   { id: "features",    label: "Features & Traits" },
   { id: "backgrounds", label: "Background" },
-  { id: "notes",       label: "Notes" },
+  { id: "codex",       label: "Codex" },
 ];
 
 function renderOverviewTabCard(store, state, rerender) {
@@ -529,7 +503,7 @@ function renderOverviewTabCard(store, state, rerender) {
       case "inventory":   return buildInventoryPane(store, state);
       case "features":    return buildFeaturesPane(store, state);
       case "backgrounds": return buildBackgroundsPane(store, state);
-      case "notes":       return buildNotesPane(store, state);
+      case "codex":       return buildCodexPane(store, state, rerender);
     }
   });
 
@@ -632,15 +606,56 @@ function buildActionsPane(store, state) {
   const reactionFeats = features.filter(f => matchReaction(f));
   const otherLimited  = features.filter(f => /\buses?\b.*(per|\/)\s*(short|long) rest|\b(\d+)\s*\/\s*(short|long) rest/i.test(f.desc || ""));
 
-  const weaponRows = equippedWeapons.map(({ base }) =>
-    ovRow(base.name, `${base.damage || "—"} ${base.damageType || ""} · ${base.range || "melee"}`)
-  );
-  const customAttackRows = customAttacks.map(a =>
-    ovRow(a.name + " ★", `${a.damage || "—"} ${a.damageType || ""} · ${a.range || "—"}`)
-  );
-  const featureRow = (f) => ovRow(f.name, (f.desc || "").slice(0, 120) + ((f.desc?.length || 0) > 120 ? "…" : ""),
-    () => openFeatureDetail(f, { store }));
-  const customActionRow = (a) => ovRow(a.name + (a.used ? " · used" : ""), "Custom action");
+  const weaponRows = equippedWeapons.map(({ instance, base }) => {
+    const meta = `${base.damage || "—"} ${base.damageType || ""} · ${base.range || "melee"}`;
+    const row = ovRow(base.name, meta, () => openItemDetail(base, { store, instanceId: instance.instanceId }));
+    bindTooltip(row, {
+      title: base.name,
+      html: buildTooltipHtml({
+        baseText: meta + (base.properties?.length ? `\nProperties: ${base.properties.join(", ")}` : ""),
+        acquiredFrom: instance.source || "",
+        userNotes: instance.notes || ""
+      }),
+      sourceRef: instance.itemId ? "SRD" : "Homebrew",
+      onMore: () => openItemDetail(base, { store, instanceId: instance.instanceId })
+    });
+    return row;
+  });
+  const customAttackRows = customAttacks.map(a => {
+    const meta = `${a.damage || "—"} ${a.damageType || ""} · ${a.range || "—"}`;
+    const row = ovRow(a.name + " ★", meta);
+    bindTooltip(row, {
+      title: a.name,
+      html: buildTooltipHtml({
+        baseText: meta + (a.properties?.length ? `\nProperties: ${a.properties.join(", ")}` : ""),
+        acquiredFrom: a._acquiredFrom || "",
+        userNotes: a.notes || a._userNotes || ""
+      }),
+      sourceRef: "Homebrew"
+    });
+    return row;
+  });
+  const featureRow = (f) => {
+    const row = ovRow(f.name,
+      (f.desc || "").slice(0, 120) + ((f.desc?.length || 0) > 120 ? "…" : ""),
+      () => openFeatureDetail(f, { store }));
+    const savedSource = store.doc.features?.sources?.[f.id] || "";
+    bindTooltip(row, {
+      title: f.name,
+      html: buildTooltipHtml({ baseText: f.desc, acquiredFrom: savedSource, userNotes: f.userNotes }),
+      sourceRef: f.source,
+      onMore: () => openFeatureDetail(f, { store })
+    });
+    return row;
+  };
+  const customActionRow = (a) => {
+    const row = ovRow(a.name + (a.used ? " · used" : ""), "Custom action");
+    bindTooltip(row, {
+      title: a.name,
+      html: buildTooltipHtml({ baseText: "Custom action tracker" })
+    });
+    return row;
+  };
 
   const subs = [
     { id: "all", label: "All", build: () => ovList([
@@ -683,11 +698,35 @@ function buildSpellsPane(store, state) {
   }
   for (const s of doc.spellcasting.custom || []) spells.push(s);
 
-  const spellRow = (s) => ovRow(
-    s.name + (s.custom ? " ★" : "") + (s.concentration ? " · C" : "") + (s.ritual ? " · R" : ""),
-    `${s.school || ""} · ${s.castingTime || ""}`.trim(),
-    () => openSpellDetail(s, { store })
-  );
+  const sc = doc.spellcasting || {};
+  const spellRow = (s) => {
+    const isCustom = !!s.custom;
+    const label = s.name + (isCustom ? " ★" : "") + (s.concentration ? " · C" : "") + (s.ritual ? " · R" : "");
+    const meta = `${s.school || ""} · ${s.castingTime || ""}`.trim();
+    const row = ovRow(label, meta, () => openSpellDetail(s, { store }));
+    const compParts = [];
+    if (s.components?.v) compParts.push("V");
+    if (s.components?.s) compParts.push("S");
+    if (s.components?.m) compParts.push(`M${s.components.material ? ` (${s.components.material})` : ""}`);
+    const compStr = compParts.join(", ") || "—";
+    const tipBase = [
+      `Casting Time: ${s.castingTime || "—"}`,
+      `Range: ${s.range || "—"}`,
+      `Components: ${compStr}`,
+      `Duration: ${s.duration || "—"}`
+    ].join(" · ") + (s.description ? "\n\n" + s.description.slice(0, 160) + (s.description.length > 160 ? "…" : "") : "");
+    bindTooltip(row, {
+      title: s.name,
+      html: buildTooltipHtml({
+        baseText: tipBase,
+        acquiredFrom: sc.spellSources?.[s.id] || s._acquiredFrom || s.source || "",
+        userNotes: sc.spellNotes?.[s.id] || s._userNotes || ""
+      }),
+      sourceRef: isCustom ? "Homebrew" : "SRD",
+      onMore: () => openSpellDetail(s, { store })
+    });
+    return row;
+  };
 
   const byLvl = (lvl) => spells.filter(s => (s.level ?? 0) === lvl);
   const ritualList = spells.filter(s => s.ritual);
@@ -734,12 +773,22 @@ function buildInventoryPane(store, state) {
   const rowFor = (it) => {
     const base = getBase(it);
     if (!base) return null;
+    const isCustom = !it.itemId && !!it.custom;
     const meta = base.type === "weapon" ? `${base.damage || ""} ${base.damageType || ""}`.trim()
                : base.type === "armor"  ? `AC ${base.ac} (${base.armorType})`
                : (base.description || "").slice(0, 80);
     const qty = it.quantity > 1 ? ` ×${it.quantity}` : "";
-    return ovRow(base.name + qty + (it.equipped ? " · equipped" : "") + (it.attuned ? " · attuned" : ""),
+    const row = ovRow(base.name + qty + (it.equipped ? " · equipped" : "") + (it.attuned ? " · attuned" : ""),
       meta, () => openItemDetail(base, { store, instanceId: it.instanceId }));
+    const acquiredFrom = it.source || (isCustom ? (it.custom?._acquiredFrom || "") : "");
+    const userNotes    = it.notes  || (isCustom ? (it.custom?._userNotes    || "") : "");
+    bindTooltip(row, {
+      title: base.name,
+      html: buildTooltipHtml({ baseText: meta || base.description, acquiredFrom, userNotes }),
+      sourceRef: isCustom ? "Homebrew" : "SRD",
+      onMore: () => openItemDetail(base, { store, instanceId: it.instanceId })
+    });
+    return row;
   };
 
   const isComponentPouch = (it) => {
@@ -761,7 +810,7 @@ function buildInventoryPane(store, state) {
   const subs = [
     { id: "all",        label: "All",                build: () => ovList(items.map(rowFor).filter(Boolean)) },
     { id: "equipment",  label: "Equipment",          build: () => ovList(equipment.map(rowFor).filter(Boolean)) },
-    { id: "backpacks",  label: "Backpacks",          build: () => ovList(backpacks.map(rowFor).filter(Boolean)) },
+    { id: "backpack",   label: "Backpack",           build: () => ovList(backpacks.map(rowFor).filter(Boolean)) },
     { id: "pouch",      label: "Component Pouch",    build: () => ovList(compPouches.map(rowFor).filter(Boolean)) },
     { id: "attunement", label: "Attunement",         build: () => ovList(attunement.map(rowFor).filter(Boolean)) },
     { id: "other",      label: "Other Possessions",  build: () => ovList(other.map(rowFor).filter(Boolean)) },
@@ -775,11 +824,21 @@ function buildFeaturesPane(store, state) {
   const d = store.derived;
   const features = d.features || [];
 
-  const featureRow = (f) => ovRow(
-    f.name + (f.level ? ` · L${f.level}` : "") + (f.kind === "custom" ? " ★" : ""),
-    (f.desc || "").slice(0, 120) + ((f.desc?.length || 0) > 120 ? "…" : ""),
-    () => openFeatureDetail(f, { store })
-  );
+  const featureRow = (f) => {
+    const row = ovRow(
+      f.name + (f.level ? ` · L${f.level}` : "") + (f.kind === "custom" ? " ★" : ""),
+      (f.desc || "").slice(0, 120) + ((f.desc?.length || 0) > 120 ? "…" : ""),
+      () => openFeatureDetail(f, { store })
+    );
+    const savedSource = store.doc.features?.sources?.[f.id] || "";
+    bindTooltip(row, {
+      title: f.name,
+      html: buildTooltipHtml({ baseText: f.desc, acquiredFrom: savedSource, userNotes: f.userNotes }),
+      sourceRef: f.source,
+      onMore: () => openFeatureDetail(f, { store })
+    });
+    return row;
+  };
 
   const classFeats = features.filter(f => f.kind === "class");
   const traits     = features.filter(f => f.kind === "race" || f.kind === "background");
@@ -847,18 +906,24 @@ function buildBackgroundsPane(store, state) {
   return buildSubTabPane("backgrounds", subs, state);
 }
 
-/* ── Notes pane (Codex sections) ── */
-function buildNotesPane(store, state) {
+/* ── Codex pane (lined parchment) ── */
+function buildCodexPane(store, state, rerender) {
   const subs = CODEX_SECTIONS.map(s => ({
     id: s.id,
     label: s.title,
     build: () => {
-      const host = el("div", { class: "ov-notes-host" });
-      renderCodexPage(host, s.id, store);
-      return host;
+      const page = el("article", { class: "codex__page" });
+      renderCodexPage(page, s.id, store);
+      const header = el("header", { class: "codex__page-header" },
+        el("span", { class: "codex__page-num" }, s.flourish),
+        el("h2", { class: "codex__page-title" }, s.title)
+      );
+      return el("div", { class: "codex codex--embedded" },
+        el("div", { class: "codex__book" }, header, page)
+      );
     }
   }));
-  return buildSubTabPane("notes", subs, state);
+  return buildSubTabPane("codex", subs, state);
 }
 
 /* ─────────────────────── combat tab ─────────────────────── */
