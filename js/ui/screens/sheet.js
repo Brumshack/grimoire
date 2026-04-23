@@ -17,6 +17,7 @@ import { SPELL_SCHEMA, ITEM_SCHEMA, FEATURE_SCHEMA, ATTACK_SCHEMA } from "../../
 import { uuid } from "../../util/id.js";
 import { openOverridePopover } from "../components/overridePopover.js";
 import { openModal } from "../components/modal.js";
+import { initTabbedContainer } from "../components/tabbedContainer.js";
 
 import { ALIGNMENTS } from "../../data/rules.js";
 import { SPELLS, spellsByLevel } from "../../data/spells.js";
@@ -121,7 +122,7 @@ function renderSheetChrome(store, state, rerender) {
     case "inventory": body = renderInventoryTab(store); break;
     case "features":  body = renderFeaturesTab(store); break;
     case "codex":     body = renderCodexTab(store, state, rerender); break;
-    default:          body = renderOverviewTab(store);
+    default:          body = renderOverviewTab(store, state, rerender);
   }
 
   return el("div", { class: "sheet", "data-edit-mode": "on" }, header, tabs, body);
@@ -374,7 +375,7 @@ function renderHitDicePanel(store) {
 
 /* ─────────────────────── overview ─────────────────────── */
 
-function renderOverviewTab(store) {
+function renderOverviewTab(store, state, rerender) {
   const d = store.derived;
   const sc = store.doc.spellcasting;
   const showSpellcasting = d.primaryClass?.spellcasting
@@ -382,7 +383,7 @@ function renderOverviewTab(store) {
     || (sc.custom?.length ?? 0) > 0
     || (sc.knownSpells?.length ?? 0) > 0;
 
-  return el("div", { class: "sheet__grid" },
+  const grid = el("div", { class: "sheet__grid" },
     // Left column
     el("div", { class: "col col--left" },
       renderAbilityBlock(store),
@@ -400,6 +401,11 @@ function renderOverviewTab(store) {
       renderCombatQuick(store),
       showSpellcasting ? renderSpellcastingQuick(store) : null
     )
+  );
+
+  return el("div", { class: "overview" },
+    grid,
+    renderOverviewTabCard(store, state, rerender)
   );
 }
 
@@ -501,6 +507,359 @@ function renderSpellcastingQuick(store) {
 }
 
 const fmt = m => m == null ? "—" : (m >= 0 ? `+${m}` : `${m}`);
+
+/* ─────────────────────── overview tab-card ─────────────────────── */
+
+const OVERVIEW_MAIN_TABS = [
+  { id: "actions",     label: "Actions" },
+  { id: "spells",      label: "Spells" },
+  { id: "inventory",   label: "Inventory" },
+  { id: "features",    label: "Features & Traits" },
+  { id: "backgrounds", label: "Background" },
+  { id: "notes",       label: "Notes" },
+];
+
+function renderOverviewTabCard(store, state, rerender) {
+  const ov = state.overview || (state.overview = { main: "actions", sub: {} });
+
+  const mainPanes = OVERVIEW_MAIN_TABS.map(m => {
+    switch (m.id) {
+      case "actions":     return buildActionsPane(store, state);
+      case "spells":      return buildSpellsPane(store, state);
+      case "inventory":   return buildInventoryPane(store, state);
+      case "features":    return buildFeaturesPane(store, state);
+      case "backgrounds": return buildBackgroundsPane(store, state);
+      case "notes":       return buildNotesPane(store, state);
+    }
+  });
+
+  // Apply persisted active state
+  mainPanes.forEach((pane, i) => {
+    pane.classList.toggle("active", ov.main === OVERVIEW_MAIN_TABS[i].id);
+  });
+
+  const tabCard = el("div", { class: "tab-card tab-card--overview" },
+    el("div", { class: "main-tab-bar" },
+      ...OVERVIEW_MAIN_TABS.map(m => {
+        const btn = el("button", {
+          class: "mtab" + (ov.main === m.id ? " active" : ""),
+          "data-main": m.id
+        }, m.label);
+        btn.addEventListener("click", () => { ov.main = m.id; });
+        return btn;
+      })
+    ),
+    ...mainPanes
+  );
+
+  initTabbedContainer(tabCard);
+  return tabCard;
+}
+
+// Build a .main-pane with sub-tab bar + sub-panes. `subs` is [{id, label, build}]
+function buildSubTabPane(groupId, subs, state) {
+  const ov = state.overview;
+  const current = ov.sub[groupId] || subs[0].id;
+
+  const bar = el("div", { class: "sub-tab-bar" },
+    ...subs.map(s => {
+      const btn = el("button", {
+        class: "stab" + (current === s.id ? " active" : ""),
+        "data-group": groupId,
+        "data-sub": s.id
+      }, s.label);
+      btn.addEventListener("click", () => { ov.sub[groupId] = s.id; });
+      return btn;
+    })
+  );
+
+  const panes = subs.map(s => {
+    const pane = el("div", {
+      class: "sub-pane" + (current === s.id ? " active" : ""),
+      id: `sp-${groupId}-${s.id}`
+    });
+    const content = s.build();
+    if (content) {
+      if (Array.isArray(content)) pane.append(...content.filter(Boolean));
+      else pane.append(content);
+    }
+    return pane;
+  });
+
+  return el("div", { class: "main-pane", id: `mp-${groupId}` }, bar, ...panes);
+}
+
+// ── shared row helpers ────────────────────────────────────────────────────
+function ovEmpty(text) {
+  return el("div", { class: "ov-empty" }, text);
+}
+function ovList(items) {
+  if (!items.length) return ovEmpty("Nothing here yet.");
+  return el("div", { class: "ov-list" }, ...items);
+}
+function ovRow(title, meta, onClick) {
+  const attrs = { class: "ov-row" };
+  if (onClick) attrs.onclick = onClick;
+  return el("div", attrs,
+    el("div", { class: "ov-row__name" }, title),
+    meta ? el("div", { class: "ov-row__meta" }, meta) : null
+  );
+}
+
+/* ── Actions pane ── */
+function buildActionsPane(store, state) {
+  const doc = store.doc;
+  const d = store.derived;
+
+  const equippedWeapons = (doc.equipment.items || [])
+    .filter(i => i.equipped)
+    .map(i => {
+      const base = i.itemId ? ITEMS[i.itemId] : i.custom;
+      if (!base || base.type !== "weapon") return null;
+      const ov = (doc.combat.attackOverrides || {})[i.instanceId] || null;
+      return { instance: i, base: ov ? { ...base, ...ov } : base };
+    })
+    .filter(Boolean);
+  const customAttacks = doc.combat.customAttacks || [];
+  const customActions = doc.combat.customActions || [];
+
+  const features = d.features || [];
+  const matchAction   = (f) => /(^|\b)as an action\b|\buse (a|your) action\b|\btake the .* action\b/i.test(f.desc || "");
+  const matchBonus    = (f) => /\bbonus action\b/i.test(f.desc || "");
+  const matchReaction = (f) => /\breaction\b/i.test(f.desc || "");
+  const actionFeats   = features.filter(f => matchAction(f)   && !matchBonus(f) && !matchReaction(f));
+  const bonusFeats    = features.filter(f => matchBonus(f));
+  const reactionFeats = features.filter(f => matchReaction(f));
+  const otherLimited  = features.filter(f => /\buses?\b.*(per|\/)\s*(short|long) rest|\b(\d+)\s*\/\s*(short|long) rest/i.test(f.desc || ""));
+
+  const weaponRows = equippedWeapons.map(({ base }) =>
+    ovRow(base.name, `${base.damage || "—"} ${base.damageType || ""} · ${base.range || "melee"}`)
+  );
+  const customAttackRows = customAttacks.map(a =>
+    ovRow(a.name + " ★", `${a.damage || "—"} ${a.damageType || ""} · ${a.range || "—"}`)
+  );
+  const featureRow = (f) => ovRow(f.name, (f.desc || "").slice(0, 120) + ((f.desc?.length || 0) > 120 ? "…" : ""),
+    () => openFeatureDetail(f, { store }));
+  const customActionRow = (a) => ovRow(a.name + (a.used ? " · used" : ""), "Custom action");
+
+  const subs = [
+    { id: "all", label: "All", build: () => ovList([
+      ...weaponRows, ...customAttackRows,
+      ...actionFeats.map(featureRow),
+      ...bonusFeats.map(featureRow),
+      ...reactionFeats.map(featureRow),
+      ...customActions.map(customActionRow)
+    ])},
+    { id: "attack", label: "Attack", build: () => ovList([...weaponRows, ...customAttackRows]) },
+    { id: "action", label: "Action", build: () => ovList(actionFeats.map(featureRow)) },
+    { id: "bonus", label: "Bonus Action", build: () => ovList(bonusFeats.map(featureRow)) },
+    { id: "reaction", label: "Reaction", build: () => ovList(reactionFeats.map(featureRow)) },
+    { id: "other", label: "Other", build: () => ovList(customActions.map(customActionRow)) },
+    { id: "limited", label: "Limited Use", build: () => ovList(otherLimited.map(featureRow)) },
+  ];
+  return buildSubTabPane("actions", subs, state);
+}
+
+/* ── Spells pane ── */
+function buildSpellsPane(store, state) {
+  const doc = store.doc;
+  const d = store.derived;
+  const cls = d.primaryClass;
+  const hasCaster = !!cls?.spellcasting;
+  const known = new Set(doc.spellcasting.knownSpells || []);
+  const overrides = doc.spellcasting.spellOverrides || {};
+  const byLevel = hasCaster ? spellsByLevel(cls.id) : new Map();
+
+  const spells = [];
+  if (hasCaster) {
+    for (const lvl of byLevel.keys()) {
+      for (const s of byLevel.get(lvl)) {
+        if (known.has(s.id)) {
+          const ov = overrides[s.id];
+          spells.push(ov ? { ...s, ...ov, id: s.id } : s);
+        }
+      }
+    }
+  }
+  for (const s of doc.spellcasting.custom || []) spells.push(s);
+
+  const spellRow = (s) => ovRow(
+    s.name + (s.custom ? " ★" : "") + (s.concentration ? " · C" : "") + (s.ritual ? " · R" : ""),
+    `${s.school || ""} · ${s.castingTime || ""}`.trim(),
+    () => openSpellDetail(s, { store })
+  );
+
+  const byLvl = (lvl) => spells.filter(s => (s.level ?? 0) === lvl);
+  const ritualList = spells.filter(s => s.ritual);
+  const concList   = spells.filter(s => s.concentration);
+
+  const levelSubs = [];
+  for (let lvl = 1; lvl <= 9; lvl++) {
+    if (byLvl(lvl).length > 0) {
+      levelSubs.push({
+        id: `l${lvl}`, label: `Level ${lvl}`,
+        build: () => ovList(byLvl(lvl).map(spellRow))
+      });
+    }
+  }
+
+  const subs = [
+    { id: "all", label: "All", build: () => {
+      const parts = [];
+      if (byLvl(0).length) parts.push(el("h4", { class: "ov-group-h" }, "Cantrips"), ovList(byLvl(0).map(spellRow)));
+      for (let lvl = 1; lvl <= 9; lvl++) {
+        if (byLvl(lvl).length) parts.push(el("h4", { class: "ov-group-h" }, `Level ${lvl}`), ovList(byLvl(lvl).map(spellRow)));
+      }
+      return parts.length ? el("div", {}, ...parts) : ovEmpty("No spells known.");
+    }},
+    { id: "cantrips", label: "Cantrips", build: () => ovList(byLvl(0).map(spellRow)) },
+    ...levelSubs,
+    { id: "ritual", label: "Ritual", build: () => ovList(ritualList.map(spellRow)) },
+    { id: "concentration", label: "Concentration", build: () => ovList(concList.map(spellRow)) },
+  ];
+  return buildSubTabPane("spells", subs, state);
+}
+
+/* ── Inventory pane ── */
+function buildInventoryPane(store, state) {
+  const doc = store.doc;
+  const items = doc.equipment.items || [];
+
+  const getBase = (it) => {
+    const baseData = it.itemId ? ITEMS[it.itemId] : it.custom;
+    if (!baseData) return null;
+    return (it.overrides && Object.keys(it.overrides).length)
+      ? { ...baseData, ...it.overrides } : baseData;
+  };
+  const rowFor = (it) => {
+    const base = getBase(it);
+    if (!base) return null;
+    const meta = base.type === "weapon" ? `${base.damage || ""} ${base.damageType || ""}`.trim()
+               : base.type === "armor"  ? `AC ${base.ac} (${base.armorType})`
+               : (base.description || "").slice(0, 80);
+    const qty = it.quantity > 1 ? ` ×${it.quantity}` : "";
+    return ovRow(base.name + qty + (it.equipped ? " · equipped" : "") + (it.attuned ? " · attuned" : ""),
+      meta, () => openItemDetail(base, { store, instanceId: it.instanceId }));
+  };
+
+  const isComponentPouch = (it) => {
+    const base = getBase(it);
+    return /component pouch/i.test(base?.name || "");
+  };
+  const isBackpack = (it) => {
+    const base = getBase(it);
+    return /backpack|haversack|sack$|\bpack\b/i.test(base?.name || "") && !isComponentPouch(it);
+  };
+
+  const equipment   = items.filter(it => it.equipped);
+  const backpacks   = items.filter(isBackpack);
+  const compPouches = items.filter(isComponentPouch);
+  const attunement  = items.filter(it => it.attuned);
+  const other       = items.filter(it =>
+    !it.equipped && !it.attuned && !isBackpack(it) && !isComponentPouch(it));
+
+  const subs = [
+    { id: "all",        label: "All",                build: () => ovList(items.map(rowFor).filter(Boolean)) },
+    { id: "equipment",  label: "Equipment",          build: () => ovList(equipment.map(rowFor).filter(Boolean)) },
+    { id: "backpacks",  label: "Backpacks",          build: () => ovList(backpacks.map(rowFor).filter(Boolean)) },
+    { id: "pouch",      label: "Component Pouch",    build: () => ovList(compPouches.map(rowFor).filter(Boolean)) },
+    { id: "attunement", label: "Attunement",         build: () => ovList(attunement.map(rowFor).filter(Boolean)) },
+    { id: "other",      label: "Other Possessions",  build: () => ovList(other.map(rowFor).filter(Boolean)) },
+  ];
+  return buildSubTabPane("inventory", subs, state);
+}
+
+/* ── Features & Traits pane ── */
+function buildFeaturesPane(store, state) {
+  const doc = store.doc;
+  const d = store.derived;
+  const features = d.features || [];
+
+  const featureRow = (f) => ovRow(
+    f.name + (f.level ? ` · L${f.level}` : "") + (f.kind === "custom" ? " ★" : ""),
+    (f.desc || "").slice(0, 120) + ((f.desc?.length || 0) > 120 ? "…" : ""),
+    () => openFeatureDetail(f, { store })
+  );
+
+  const classFeats = features.filter(f => f.kind === "class");
+  const traits     = features.filter(f => f.kind === "race" || f.kind === "background");
+  const featsList  = features.filter(f =>
+    (doc.features?.featIds || []).includes(f.id) || /\bfeat\b/i.test(f.source || ""));
+
+  const subs = [
+    { id: "all",     label: "All",              build: () => ovList(features.map(featureRow)) },
+    { id: "class",   label: "Class Features",   build: () => ovList(classFeats.map(featureRow)) },
+    { id: "traits",  label: "Special Traits",   build: () => ovList(traits.map(featureRow)) },
+    { id: "feats",   label: "Feats",            build: () => ovList(featsList.map(featureRow)) },
+  ];
+  return buildSubTabPane("features", subs, state);
+}
+
+/* ── Background pane ── */
+function buildBackgroundsPane(store, state) {
+  const doc = store.doc;
+
+  const proseList = (label, path) => {
+    const arr = (doc.lore?.[path] || []);
+    return el("div", { class: "ov-prose-group" },
+      el("h4", { class: "ov-group-h" }, label),
+      el("textarea", {
+        class: "ov-prose",
+        rows: 3,
+        placeholder: `Record your ${label.toLowerCase()}, one per line…`,
+        value: Array.isArray(arr) ? arr.join("\n") : (arr || ""),
+        onchange: e => store.update(x => {
+          const lines = e.target.value.split("\n").map(s => s.trim()).filter(Boolean);
+          x.lore = x.lore || {};
+          x.lore[path] = lines;
+        })
+      })
+    );
+  };
+
+  const identityField = (label, key) => el("label", { class: "ov-field" },
+    el("span", { class: "ov-field-label" }, label),
+    el("input", {
+      type: "text",
+      value: doc.identity?.[key] || "",
+      placeholder: `—`,
+      onchange: e => store.update(x => { x.identity[key] = e.target.value; })
+    })
+  );
+
+  const subs = [
+    { id: "characteristics", label: "Characteristics", build: () => el("div", { class: "ov-prose-wrap" },
+      proseList("Personality Traits", "personalityTraits"),
+      proseList("Ideals", "ideals"),
+      proseList("Bonds", "bonds"),
+      proseList("Flaws", "flaws")
+    )},
+    { id: "appearance", label: "Appearance", build: () => el("div", { class: "ov-fields-grid" },
+      identityField("Age", "age"),
+      identityField("Height", "height"),
+      identityField("Weight", "weight"),
+      identityField("Eyes", "eyes"),
+      identityField("Hair", "hair"),
+      identityField("Skin", "skin"),
+      identityField("Gender", "gender")
+    )},
+  ];
+  return buildSubTabPane("backgrounds", subs, state);
+}
+
+/* ── Notes pane (Codex sections) ── */
+function buildNotesPane(store, state) {
+  const subs = CODEX_SECTIONS.map(s => ({
+    id: s.id,
+    label: s.title,
+    build: () => {
+      const host = el("div", { class: "ov-notes-host" });
+      renderCodexPage(host, s.id, store);
+      return host;
+    }
+  }));
+  return buildSubTabPane("notes", subs, state);
+}
 
 /* ─────────────────────── combat tab ─────────────────────── */
 

@@ -635,6 +635,96 @@ div.btn--edit-only { display: flex !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════
+   OVERVIEW TAB-CARD — categorized character index
+   ═══════════════════════════════════════════════════════════ */
+
+.tab-card--overview { margin-top: var(--sp-4); }
+
+.ov-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.ov-row {
+  display: grid;
+  grid-template-columns: 1.3fr 2fr;
+  gap: var(--sp-3);
+  align-items: center;
+  padding: 7px 10px;
+  background: var(--c-bg-0);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: border-color var(--tr-fast), background var(--tr-fast);
+}
+.ov-row:hover { border-color: var(--c-gold-dim); background: var(--c-bg-1); }
+.ov-row__name { color: var(--c-gold); font-weight: 600; }
+.ov-row__meta { color: var(--c-text-dim); font-size: var(--fs-xs); }
+.ov-empty {
+  text-align: center;
+  padding: var(--sp-4);
+  color: var(--c-text-mute);
+  font-style: italic;
+}
+.ov-group-h {
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  color: var(--c-gold);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin: var(--sp-3) 0 6px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--c-border);
+}
+.ov-group-h:first-child { margin-top: 0; }
+
+.ov-prose-wrap { display: grid; gap: var(--sp-3); }
+.ov-prose-group { display: flex; flex-direction: column; gap: 4px; }
+.ov-prose {
+  width: 100%;
+  background: var(--c-bg-0);
+  border: 1px solid var(--c-border);
+  color: var(--c-text);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  resize: vertical;
+}
+.ov-prose:focus { outline: 1px solid var(--c-gold); }
+
+.ov-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--sp-3);
+}
+.ov-field { display: flex; flex-direction: column; gap: 4px; }
+.ov-field-label {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  color: var(--c-gold);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.ov-field input {
+  background: var(--c-bg-0);
+  border: 1px solid var(--c-border);
+  color: var(--c-text);
+  border-radius: var(--r-sm);
+  padding: 6px 10px;
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.ov-field input:focus { outline: 1px solid var(--c-gold); }
+
+/* Notes pane hosts the Codex page renderer — let it render normally */
+.ov-notes-host { display: block; }
+
+/* ═══════════════════════════════════════════════════════════
    CODEX — journal / parchment aesthetic
    ═══════════════════════════════════════════════════════════ */
 
