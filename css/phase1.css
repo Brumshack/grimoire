@@ -467,6 +467,174 @@ div.btn--edit-only { display: flex !important; }
 .notes-editor textarea:focus { outline: 1px solid var(--c-gold); }
 
 /* ═══════════════════════════════════════════════════════════
+   TAB-CARD — nested tabbed container (front-page use)
+   Mechanics preserved from spec: margin-bottom: -3px on .mtab,
+   margin-bottom: -1px on .stab, scoped sub-tab JS handlers.
+   Colors reshaded to match Grimoire's gold palette.
+   ═══════════════════════════════════════════════════════════ */
+.tab-card {
+  background: var(--c-bg-1);
+  border: 1px solid var(--c-border);
+  border-radius: 5px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--sh-panel);
+}
+
+.main-tab-bar {
+  display: flex;
+  border-bottom: 3px solid var(--c-gold-dim);
+  background: linear-gradient(180deg, var(--c-bg-2), var(--c-bg-0));
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.main-tab-bar::-webkit-scrollbar { height: 0; }
+
+.mtab {
+  padding: 11px 18px;
+  font: 700 11px/1 var(--font-display), "Roboto Condensed", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--c-text-mute);
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -3px;
+  transition: all .15s;
+  white-space: nowrap;
+  user-select: none;
+  background: transparent;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+}
+.mtab:hover  { color: var(--c-text); background: rgba(201, 168, 76, 0.08); }
+.mtab.active { color: var(--c-gold-bright); border-bottom-color: var(--c-gold); background: rgba(201, 168, 76, 0.16); }
+
+.main-pane        { display: none; }
+.main-pane.active { display: block; }
+
+.sub-tab-bar {
+  display: flex;
+  gap: 2px;
+  padding: 10px 12px 0;
+  border-bottom: 1px solid var(--c-border);
+  background: rgba(201, 168, 76, 0.03);
+  flex-wrap: wrap;
+}
+.stab {
+  padding: 5px 12px;
+  font: 700 10px/1 var(--font-display), "Roboto Condensed", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--c-text-mute);
+  cursor: pointer;
+  border-radius: 3px 3px 0 0;
+  border: 1px solid transparent;
+  border-bottom: none;
+  transition: all .15s;
+  user-select: none;
+  margin-bottom: -1px;
+  background: transparent;
+}
+.stab:hover  { color: var(--c-text); background: var(--c-bg-2); }
+.stab.active {
+  color: var(--c-gold-bright);
+  background: var(--c-bg-1);
+  border-color: var(--c-border);
+  border-bottom-color: var(--c-bg-1);
+  font-weight: 700;
+}
+
+.sub-pane        { display: none; padding: 14px; }
+.sub-pane.active { display: block; }
+
+/* Tab-card: search + scrollable lists */
+.tab-card-search {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--c-bg-0);
+  border: 1px solid var(--c-border);
+  color: var(--c-text);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  margin-bottom: var(--sp-2);
+}
+.tab-card-search:focus { outline: 1px solid var(--c-gold); }
+
+.tab-card-scroll {
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.tab-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tab-card-row {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr auto;
+  gap: var(--sp-2);
+  align-items: center;
+  padding: 6px 10px;
+  background: var(--c-bg-0);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  transition: border-color var(--tr-fast);
+}
+.tab-card-row:hover { border-color: var(--c-gold-dim); }
+.tab-card-row__name { color: var(--c-gold); font-weight: 600; }
+.tab-card-row__meta { color: var(--c-text-dim); font-size: var(--fs-xs); }
+
+.tab-card-group {
+  margin-bottom: var(--sp-3);
+}
+.tab-card-group__title {
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  color: var(--c-gold);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin: 0 0 6px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.tab-card-empty {
+  text-align: center;
+  padding: var(--sp-4);
+  color: var(--c-text-mute);
+  font-style: italic;
+}
+
+.guide-block {
+  background: var(--c-bg-0);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  line-height: 1.6;
+  color: var(--c-text-dim);
+}
+.guide-block h4 {
+  color: var(--c-gold);
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  margin: 0 0 var(--sp-2);
+}
+.guide-block h4:not(:first-child) { margin-top: var(--sp-4); }
+.guide-block ul { margin: 6px 0; padding-left: var(--sp-4); }
+.guide-block li { margin-bottom: 4px; }
+.guide-block code {
+  background: var(--c-bg-2);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.9em;
+  color: var(--c-gold-bright);
+}
+
+/* ═══════════════════════════════════════════════════════════
    CODEX — journal / parchment aesthetic
    ═══════════════════════════════════════════════════════════ */
 
