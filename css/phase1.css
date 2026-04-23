@@ -721,6 +721,66 @@ div.btn--edit-only { display: flex !important; }
 }
 .ov-field input:focus { outline: 1px solid var(--c-gold); }
 
+.ov-add-bar {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-top: var(--sp-3);
+}
+.ov-add-btn {
+  border: 1px dashed var(--c-gold-dim);
+  background: transparent;
+  color: var(--c-gold);
+  font-size: var(--fs-xs);
+  padding: 5px 12px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all var(--tr-fast);
+}
+.ov-add-btn:hover {
+  background: rgba(201, 168, 76, 0.12);
+  border-color: var(--c-gold);
+}
+
+.ov-library {
+  margin-top: var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.ov-library__toggle {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  color: var(--c-gold);
+  background: var(--c-bg-0);
+  user-select: none;
+  list-style: none;
+}
+.ov-library__toggle:hover { background: var(--c-bg-2); }
+.ov-library__toggle::marker, .ov-library__toggle::-webkit-details-marker { display: none; }
+.ov-library[open] .ov-library__toggle::before { content: "▾ "; }
+.ov-library:not([open]) .ov-library__toggle::before { content: "▸ "; }
+.ov-library__list {
+  padding: 10px 12px;
+  background: var(--c-bg-1);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.ov-library__group { width: 100%; }
+.ov-library__group-title {
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  color: var(--c-gold-dim);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin: 6px 0 4px;
+}
+.ov-library__group + .ov-library__group { margin-top: var(--sp-2); }
+
 /* Notes pane hosts the Codex page renderer — let it render normally */
 .ov-notes-host { display: block; }
 

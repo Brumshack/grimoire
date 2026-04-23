@@ -579,6 +579,18 @@ function ovRow(title, meta, onClick) {
     meta ? el("div", { class: "ov-row__meta" }, meta) : null
   );
 }
+function ovAddBar(...buttons) {
+  return el("div", { class: "ov-add-bar" }, ...buttons.filter(Boolean));
+}
+function ovAddBtn(label, onClick) {
+  return el("button", { class: "btn btn--sm ov-add-btn", onclick: onClick }, label);
+}
+function ovPane(list, ...addBtns) {
+  return el("div", {},
+    list,
+    addBtns.length ? ovAddBar(...addBtns) : null
+  );
+}
 
 /* ── Actions pane ── */
 function buildActionsPane(store, state) {
@@ -657,20 +669,29 @@ function buildActionsPane(store, state) {
     return row;
   };
 
+  const mkAddAttack = () => ovAddBtn("+ Add Attack", () => openHomebrewForm({
+    schema: ATTACK_SCHEMA,
+    onSave: record => store.update(x => {
+      x.combat.customAttacks = x.combat.customAttacks || [];
+      x.combat.customAttacks.push(record);
+    })
+  }));
+  const mkAddAction = () => ovAddBtn("+ Add Custom Action", () => openAddCustomActionModal(store));
+
   const subs = [
-    { id: "all", label: "All", build: () => ovList([
+    { id: "all", label: "All", build: () => ovPane(ovList([
       ...weaponRows, ...customAttackRows,
       ...actionFeats.map(featureRow),
       ...bonusFeats.map(featureRow),
       ...reactionFeats.map(featureRow),
       ...customActions.map(customActionRow)
-    ])},
-    { id: "attack", label: "Attack", build: () => ovList([...weaponRows, ...customAttackRows]) },
-    { id: "action", label: "Action", build: () => ovList(actionFeats.map(featureRow)) },
-    { id: "bonus", label: "Bonus Action", build: () => ovList(bonusFeats.map(featureRow)) },
-    { id: "reaction", label: "Reaction", build: () => ovList(reactionFeats.map(featureRow)) },
-    { id: "other", label: "Other", build: () => ovList(customActions.map(customActionRow)) },
-    { id: "limited", label: "Limited Use", build: () => ovList(otherLimited.map(featureRow)) },
+    ]), mkAddAttack(), mkAddAction())},
+    { id: "attack",   label: "Attack",       build: () => ovPane(ovList([...weaponRows, ...customAttackRows]), mkAddAttack()) },
+    { id: "action",   label: "Action",       build: () => ovPane(ovList(actionFeats.map(featureRow)), mkAddAction()) },
+    { id: "bonus",    label: "Bonus Action", build: () => ovPane(ovList(bonusFeats.map(featureRow)), mkAddAction()) },
+    { id: "reaction", label: "Reaction",     build: () => ovPane(ovList(reactionFeats.map(featureRow)), mkAddAction()) },
+    { id: "other",    label: "Other",        build: () => ovPane(ovList(customActions.map(customActionRow)), mkAddAction()) },
+    { id: "limited",  label: "Limited Use",  build: () => ovPane(ovList(otherLimited.map(featureRow)), mkAddAction()) },
   ];
   return buildSubTabPane("actions", subs, state);
 }
@@ -732,12 +753,42 @@ function buildSpellsPane(store, state) {
   const ritualList = spells.filter(s => s.ritual);
   const concList   = spells.filter(s => s.concentration);
 
+  const addCustomSpell = (lvl) => ovAddBtn(
+    lvl === 0 ? "+ Add Custom Cantrip" : "+ Add Custom Spell",
+    () => openHomebrewForm({
+      schema: SPELL_SCHEMA,
+      initial: { level: lvl ?? 1, castingTime: "1 action", duration: "Instantaneous", school: "evocation", name: "", description: "" },
+      onSave: record => store.update(x => {
+        x.spellcasting.custom = x.spellcasting.custom || [];
+        x.spellcasting.custom.push(lvl === 0 ? { ...record, level: 0 } : record);
+      })
+    })
+  );
+
+  const spellLibraryDropdown = hasCaster
+    ? el("details", { class: "ov-library" },
+        el("summary", { class: "ov-library__toggle" }, "+ Add from Spell Library"),
+        el("div", { class: "ov-library__list" },
+          ...[...byLevel.keys()].sort((a, b) => a - b).flatMap(lvl =>
+            byLevel.get(lvl).filter(s => !known.has(s.id)).map(s =>
+              el("button", {
+                class: "btn btn--sm",
+                onclick: () => store.update(x => {
+                  x.spellcasting.knownSpells = [...new Set([...(x.spellcasting.knownSpells || []), s.id])];
+                })
+              }, `${s.name} (${lvl === 0 ? "Cantrip" : `L${lvl}`})`)
+            )
+          )
+        )
+      )
+    : null;
+
   const levelSubs = [];
   for (let lvl = 1; lvl <= 9; lvl++) {
     if (byLvl(lvl).length > 0) {
       levelSubs.push({
         id: `l${lvl}`, label: `Level ${lvl}`,
-        build: () => ovList(byLvl(lvl).map(spellRow))
+        build: () => ovPane(ovList(byLvl(lvl).map(spellRow)), addCustomSpell(lvl))
       });
     }
   }
@@ -749,12 +800,13 @@ function buildSpellsPane(store, state) {
       for (let lvl = 1; lvl <= 9; lvl++) {
         if (byLvl(lvl).length) parts.push(el("h4", { class: "ov-group-h" }, `Level ${lvl}`), ovList(byLvl(lvl).map(spellRow)));
       }
-      return parts.length ? el("div", {}, ...parts) : ovEmpty("No spells known.");
+      const list = parts.length ? el("div", {}, ...parts) : ovEmpty("No spells known.");
+      return el("div", {}, list, ovAddBar(addCustomSpell(0), addCustomSpell(1)), spellLibraryDropdown);
     }},
-    { id: "cantrips", label: "Cantrips", build: () => ovList(byLvl(0).map(spellRow)) },
+    { id: "cantrips", label: "Cantrips", build: () => ovPane(ovList(byLvl(0).map(spellRow)), addCustomSpell(0)) },
     ...levelSubs,
-    { id: "ritual", label: "Ritual", build: () => ovList(ritualList.map(spellRow)) },
-    { id: "concentration", label: "Concentration", build: () => ovList(concList.map(spellRow)) },
+    { id: "ritual",        label: "Ritual",        build: () => ovPane(ovList(ritualList.map(spellRow)), addCustomSpell(1)) },
+    { id: "concentration", label: "Concentration", build: () => ovPane(ovList(concList.map(spellRow)),   addCustomSpell(1)) },
   ];
   return buildSubTabPane("spells", subs, state);
 }
@@ -807,13 +859,43 @@ function buildInventoryPane(store, state) {
   const other       = items.filter(it =>
     !it.equipped && !it.attuned && !isBackpack(it) && !isComponentPouch(it));
 
+  const mkAddCustomItem = () => ovAddBtn("+ Add Custom Item", () => openHomebrewForm({
+    schema: ITEM_SCHEMA,
+    onSave: record => store.update(x => {
+      x.equipment.items.push({
+        instanceId: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()),
+        itemId: null, custom: record, quantity: 1,
+        equipped: false, attuned: false, notes: "", containerId: null
+      });
+    })
+  }));
+
+  const itemLibrary = el("details", { class: "ov-library" },
+    el("summary", { class: "ov-library__toggle" }, "+ Add from Item Library"),
+    el("div", { class: "ov-library__list" },
+      ...groupedItems().map(group => el("div", { class: "ov-library__group" },
+        el("div", { class: "ov-library__group-title" }, group.label),
+        ...group.items.map(base => el("button", {
+          class: "btn btn--sm",
+          onclick: () => store.update(x => {
+            x.equipment.items.push({
+              instanceId: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()),
+              itemId: base.id, custom: null, quantity: 1,
+              equipped: false, attuned: false, notes: "", containerId: null
+            });
+          })
+        }, base.name))
+      ))
+    )
+  );
+
   const subs = [
-    { id: "all",        label: "All",                build: () => ovList(items.map(rowFor).filter(Boolean)) },
-    { id: "equipment",  label: "Equipment",          build: () => ovList(equipment.map(rowFor).filter(Boolean)) },
-    { id: "backpack",   label: "Backpack",           build: () => ovList(backpacks.map(rowFor).filter(Boolean)) },
-    { id: "pouch",      label: "Component Pouch",    build: () => ovList(compPouches.map(rowFor).filter(Boolean)) },
-    { id: "attunement", label: "Attunement",         build: () => ovList(attunement.map(rowFor).filter(Boolean)) },
-    { id: "other",      label: "Other Possessions",  build: () => ovList(other.map(rowFor).filter(Boolean)) },
+    { id: "all",        label: "All",               build: () => el("div", {}, ovList(items.map(rowFor).filter(Boolean)), ovAddBar(mkAddCustomItem()), itemLibrary) },
+    { id: "equipment",  label: "Equipment",         build: () => ovPane(ovList(equipment.map(rowFor).filter(Boolean)), mkAddCustomItem()) },
+    { id: "backpack",   label: "Backpack",          build: () => ovPane(ovList(backpacks.map(rowFor).filter(Boolean)), mkAddCustomItem()) },
+    { id: "pouch",      label: "Component Pouch",   build: () => ovPane(ovList(compPouches.map(rowFor).filter(Boolean)), mkAddCustomItem()) },
+    { id: "attunement", label: "Attunement",        build: () => ovPane(ovList(attunement.map(rowFor).filter(Boolean)), mkAddCustomItem()) },
+    { id: "other",      label: "Other Possessions", build: () => ovPane(ovList(other.map(rowFor).filter(Boolean)), mkAddCustomItem()) },
   ];
   return buildSubTabPane("inventory", subs, state);
 }
@@ -845,11 +927,19 @@ function buildFeaturesPane(store, state) {
   const featsList  = features.filter(f =>
     (doc.features?.featIds || []).includes(f.id) || /\bfeat\b/i.test(f.source || ""));
 
+  const mkAddFeature = () => ovAddBtn("+ Add Custom Feature", () => openHomebrewForm({
+    schema: FEATURE_SCHEMA,
+    onSave: record => store.update(x => {
+      x.features.custom = x.features.custom || [];
+      x.features.custom.push(record);
+    })
+  }));
+
   const subs = [
-    { id: "all",     label: "All",              build: () => ovList(features.map(featureRow)) },
-    { id: "class",   label: "Class Features",   build: () => ovList(classFeats.map(featureRow)) },
-    { id: "traits",  label: "Special Traits",   build: () => ovList(traits.map(featureRow)) },
-    { id: "feats",   label: "Feats",            build: () => ovList(featsList.map(featureRow)) },
+    { id: "all",    label: "All",            build: () => ovPane(ovList(features.map(featureRow)), mkAddFeature()) },
+    { id: "class",  label: "Class Features", build: () => ovPane(ovList(classFeats.map(featureRow)), mkAddFeature()) },
+    { id: "traits", label: "Special Traits", build: () => ovPane(ovList(traits.map(featureRow)), mkAddFeature()) },
+    { id: "feats",  label: "Feats",          build: () => ovPane(ovList(featsList.map(featureRow)), mkAddFeature()) },
   ];
   return buildSubTabPane("features", subs, state);
 }
