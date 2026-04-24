@@ -368,6 +368,90 @@ SRD 5.1 only. What this means practically:
 
 ---
 
+## Actions tab — what shows as an attack row
+
+Any `equipment.items[]` entry where **`equipped: true` AND `custom.type === "weapon"`** (or `itemId` resolves to a weapon) renders as an attack row in the Actions tab. This is intentional for standard equipped weapons, but causes duplicates when a custom attack is *also* defined in `combat.customAttacks[]` for the same item.
+
+**Rule:** if the real attack lives in `customAttacks`, set the item's `custom.type = "gear"` and `equipped = false` so it is tracked as owned but doesn't create a phantom row. Examples: ammunition (Silver Bolts), items whose attack stats are fully overridden in customAttacks (Leo Deliznia's Silver Crossbow).
+
+---
+
+## `ovRow` — 4th argument (actions column)
+
+`ovRow(title, meta, onClick, actions?)` accepts an optional 4th arg — an array of button elements. When provided, the row renders as a 3-column grid with the buttons in a right-aligned `.ov-row__actions` div. CSS class `.ov-row--has-actions` is added automatically.
+
+```js
+ovRow("Feature Name", "Source", () => openDetail(), [editBtn(), deleteBtn()])
+```
+
+---
+
+## Spell slot tracker
+
+`renderSlotTracker(store, slots)` is defined in `sheet.js` (~line 1530) and is **fully wired into `buildSpellsPane`** — it renders above the sub-tabs in the Spells overview pane. The "Configure" button opens `openConfigureSlotsModal`, which reads/writes `doc.spellcasting.slotMaxOverrides`.
+
+Use `slotMaxOverrides` for any character whose spell slots don't follow the standard class table (e.g. half-casters with atypical distributions, multiclass, or magic items that grant extra slots):
+
+```json
+"slotMaxOverrides": { "1": 4, "2": 3, "3": 3, "4": 3, "5": 2 }
+```
+
+Magic item save bonuses have no dedicated schema field — use `proficiencies.saveOverrides` with the final computed value and explain the math in `proficiencies.saveNotes`.
+
+---
+
+## `/import-vault` — workflow notes (Raylock Flystone import, April 2026)
+
+### Two-script pattern
+The import script (`scripts/import-vault.js`) produces a base JSON. A second post-processing script (`fix-grimoire.js` in the vault folder) applies corrections that the parser can't infer. A third (`patch-grimoire.js`) applies targeted updates from files the first pass missed.
+
+**Run order:**
+```bash
+node scripts/import-vault.js "<vault-path>"        # generates base JSON
+node fix-grimoire.js                               # run from inside vault folder
+node patch-grimoire.js                             # run from inside vault folder
+```
+
+### ID stability warning
+`scripts/import-vault.js` uses `crypto.randomUUID()` — IDs are **random per run**. Fix scripts that reference specific `id` / `instanceId` values will break on re-import. Either:
+- Make IDs deterministic (hash of type + slug), or
+- Run fix scripts only on first import and maintain the JSON directly thereafter.
+
+### Auto-derived features — don't double-import
+Race traits and class features auto-derive from `race.raceId` and `progression.classes[]`. Importing them into `features.custom[]` too causes duplicates in the Features & Traits tab. **Do not import:**
+- Wood Elf / any race traits (Darkvision, Keen Senses, Fey Ancestry, Trance, Elf Weapon Training, Fleet of Foot, Mask of the Wild)
+- Standard Ranger class features (Favored Enemy, Natural Explorer, Extra Attack, Land's Stride, Hide in Plain Sight, Vanish, Primeval Awareness)
+
+Instead, put campaign-specific notes (custom enemy types, terrain choices) into `features.notes["class:ranger:favored-enemy"]` etc. — they appear in hover tooltips on the auto-derived rows.
+
+**Do import** as `features.custom[]`: non-SRD subclass features (Monster Slayer, Aberrant Dragonmark), non-SRD backgrounds (Haunted One), and any feat/gift with no SRD equivalent.
+
+### Consolidate multi-part features
+Vault files sometimes split a single feature across multiple headings (e.g. "What It Does" + "Dragonmark Quirk", or "Charges" + "What It Does" + "Permanent Flaw"). These should be merged into one `features.custom[]` entry with a combined `desc`.
+
+### Spells — source routing
+- Ranger class spells → `spellcasting.custom[]` (not `knownSpells` unless they're in the SRD spell data)
+- Dragonmark / feat spells → `spellcasting.custom[]` with `source` set to the feat name
+- All spells get sources in `spellcasting.spellSources[id]` and notes in `spellcasting.spellNotes[id]`
+- `slotMaxOverrides` must be set manually for half-casters (Ranger L15 = `{ "1":4, "2":3, "3":3, "4":3, "5":2 }`)
+
+### Vault files that commonly lack `note-type` frontmatter
+These files exist in most vaults but won't be caught by the parser — handle manually or add frontmatter to the vault:
+- `Lore/Mysteries & Lore.md` → `lore.worldLore`
+- `Lore/Party Backstories.md` → `lore.backstory` + `party[].notes`
+- `Character/KOs.md` → append to `lore.history`
+- `Resources.md` → skip (reference doc, no schema target)
+- `People/[deity-as-person].md` (e.g. Auril the Frost Maiden) → captured in `lore.deities[]` instead
+
+### Equipment equipped/attuned state
+The vault rarely records `equipped: true` explicitly. Apply these rules:
+- Worn armor → `equipped: true`
+- All attuned items → `equipped: true` (attunement requires wearing/holding)
+- Ammunition → `type: "gear"`, `equipped: false`
+- Weapons that have a `customAttacks[]` entry → `type: "gear"`, `equipped: false` to avoid duplicate Actions rows
+
+---
+
 ## Phased delivery
 
 - **Phase 1 (done):** Roster (nested tab-card: Roster/Library/Guide), creator (standard array), single-page character sheet with overview tab-card (6 main tabs: Actions, Spells, Inventory, Features & Traits, Background, Codex), export/import, full stat overrides, custom spells/items/features/attacks (add buttons in every sub-pane), provenance tooltips on all tab-card rows (hover shows description + source + notes + More button), source+notes on everything (per-stat notes/sources in override popovers), always-on inline editing (no edit-mode toggle), "Existing Character" quick-entry flow (name + level → blank sheet), identity editing from sheet header (class/race/alignment/level dropdowns), languages/proficiencies editable, Codex embedded as tab with 14 sections (Hero, Fellowship, Session Log, Quests, Side Quests, People, Places, Maps, Factions, Gods & Faiths, Bestiary, History, World Lore, Journal) in lined-parchment style
