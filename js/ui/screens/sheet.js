@@ -839,7 +839,10 @@ function buildSpellsPane(store, state) {
     { id: "ritual",        label: "Ritual",        build: () => ovPane(ovList(ritualList.map(spellRow)), addCustomSpell(1)) },
     { id: "concentration", label: "Concentration", build: () => ovPane(ovList(concList.map(spellRow)),   addCustomSpell(1)) },
   ];
-  return buildSubTabPane("spells", subs, state);
+  return el("div", { class: "spells-pane" },
+    renderSlotTracker(store, d.slots),
+    buildSubTabPane("spells", subs, state)
+  );
 }
 
 /* ── Inventory pane ── */
