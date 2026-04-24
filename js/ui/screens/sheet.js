@@ -571,12 +571,13 @@ function ovList(items) {
   if (!items.length) return ovEmpty("Nothing here yet.");
   return el("div", { class: "ov-list" }, ...items);
 }
-function ovRow(title, meta, onClick) {
-  const attrs = { class: "ov-row" };
+function ovRow(title, meta, onClick, actions) {
+  const attrs = { class: "ov-row" + (actions?.length ? " ov-row--has-actions" : "") };
   if (onClick) attrs.onclick = onClick;
   return el("div", attrs,
     el("div", { class: "ov-row__name" }, title),
-    meta ? el("div", { class: "ov-row__meta" }, meta) : null
+    meta ? el("div", { class: "ov-row__meta" }, meta) : el("div", { class: "ov-row__meta" }),
+    actions?.length ? el("div", { class: "ov-row__actions" }, ...actions) : null
   );
 }
 function ovAddBar(...buttons) {
@@ -633,9 +634,25 @@ function buildActionsPane(store, state) {
     });
     return row;
   });
-  const customAttackRows = customAttacks.map(a => {
+
+  const customAttackRow = (a) => {
     const meta = `${a.damage || "—"} ${a.damageType || ""} · ${a.range || "—"}`;
-    const row = ovRow(a.name + " ★", meta);
+    const editBtn = el("button", { class: "btn btn--sm", title: "Edit", onclick: e => {
+      e.stopPropagation();
+      openHomebrewForm({
+        schema: ATTACK_SCHEMA,
+        initial: ATTACK_SCHEMA.disassemble(a),
+        onSave: record => store.update(x => {
+          const idx = (x.combat.customAttacks || []).findIndex(r => r.id === a.id);
+          if (idx >= 0) x.combat.customAttacks[idx] = { ...record, id: a.id };
+        })
+      });
+    }}, "✎");
+    const delBtn = el("button", { class: "btn btn--sm btn--danger", title: "Remove", onclick: e => {
+      e.stopPropagation();
+      store.update(x => { x.combat.customAttacks = (x.combat.customAttacks || []).filter(r => r.id !== a.id); });
+    }}, "×");
+    const row = ovRow(a.name + " ★", meta, null, [editBtn, delBtn]);
     bindTooltip(row, {
       title: a.name,
       html: buildTooltipHtml({
@@ -646,7 +663,8 @@ function buildActionsPane(store, state) {
       sourceRef: "Homebrew"
     });
     return row;
-  });
+  };
+
   const featureRow = (f) => {
     const row = ovRow(f.name,
       (f.desc || "").slice(0, 120) + ((f.desc?.length || 0) > 120 ? "…" : ""),
@@ -660,14 +678,25 @@ function buildActionsPane(store, state) {
     });
     return row;
   };
+
   const customActionRow = (a) => {
-    const row = ovRow(a.name + (a.used ? " · used" : ""), "Custom action");
-    bindTooltip(row, {
-      title: a.name,
-      html: buildTooltipHtml({ baseText: "Custom action tracker" })
-    });
+    const typeLabel = { action: "Action", bonusAction: "Bonus Action", reaction: "Reaction", other: "Other" }[a.actionType] || "Custom";
+    const editBtn = el("button", { class: "btn btn--sm", title: "Edit", onclick: e => {
+      e.stopPropagation();
+      openAddCustomActionModal(store, a.actionType || "action", a);
+    }}, "✎");
+    const delBtn = el("button", { class: "btn btn--sm btn--danger", title: "Remove", onclick: e => {
+      e.stopPropagation();
+      store.update(x => { x.combat.customActions = (x.combat.customActions || []).filter(r => r.id !== a.id); });
+    }}, "×");
+    const row = ovRow(a.name + (a.used ? " · used" : ""), typeLabel, null, [editBtn, delBtn]);
+    bindTooltip(row, { title: a.name, html: buildTooltipHtml({ baseText: `${typeLabel} — click ✎ to edit or × to remove` }) });
     return row;
   };
+
+  // Filter customActions by type (legacy records without actionType default to "action")
+  const caByType = (type) => customActions.filter(a => (a.actionType || "action") === type);
+  const caOther  = customActions.filter(a => a.actionType === "other");
 
   const mkAddAttack = () => ovAddBtn("+ Add Attack", () => openHomebrewForm({
     schema: ATTACK_SCHEMA,
@@ -676,22 +705,24 @@ function buildActionsPane(store, state) {
       x.combat.customAttacks.push(record);
     })
   }));
-  const mkAddAction = () => ovAddBtn("+ Add Custom Action", () => openAddCustomActionModal(store));
+  const mkAddAction = (type = "action") => ovAddBtn("+ Add Custom Action", () => openAddCustomActionModal(store, type));
+
+  const customAttackRows = customAttacks.map(customAttackRow);
 
   const subs = [
     { id: "all", label: "All", build: () => ovPane(ovList([
       ...weaponRows, ...customAttackRows,
-      ...actionFeats.map(featureRow),
-      ...bonusFeats.map(featureRow),
-      ...reactionFeats.map(featureRow),
-      ...customActions.map(customActionRow)
+      ...actionFeats.map(featureRow),   ...caByType("action").map(customActionRow),
+      ...bonusFeats.map(featureRow),    ...caByType("bonusAction").map(customActionRow),
+      ...reactionFeats.map(featureRow), ...caByType("reaction").map(customActionRow),
+      ...caOther.map(customActionRow)
     ]), mkAddAttack(), mkAddAction())},
     { id: "attack",   label: "Attack",       build: () => ovPane(ovList([...weaponRows, ...customAttackRows]), mkAddAttack()) },
-    { id: "action",   label: "Action",       build: () => ovPane(ovList(actionFeats.map(featureRow)), mkAddAction()) },
-    { id: "bonus",    label: "Bonus Action", build: () => ovPane(ovList(bonusFeats.map(featureRow)), mkAddAction()) },
-    { id: "reaction", label: "Reaction",     build: () => ovPane(ovList(reactionFeats.map(featureRow)), mkAddAction()) },
-    { id: "other",    label: "Other",        build: () => ovPane(ovList(customActions.map(customActionRow)), mkAddAction()) },
-    { id: "limited",  label: "Limited Use",  build: () => ovPane(ovList(otherLimited.map(featureRow)), mkAddAction()) },
+    { id: "action",   label: "Action",       build: () => ovPane(ovList([...actionFeats.map(featureRow),   ...caByType("action").map(customActionRow)]),      mkAddAction("action")) },
+    { id: "bonus",    label: "Bonus Action", build: () => ovPane(ovList([...bonusFeats.map(featureRow),    ...caByType("bonusAction").map(customActionRow)]),  mkAddAction("bonusAction")) },
+    { id: "reaction", label: "Reaction",     build: () => ovPane(ovList([...reactionFeats.map(featureRow), ...caByType("reaction").map(customActionRow)]),     mkAddAction("reaction")) },
+    { id: "other",    label: "Other",        build: () => ovPane(ovList(caOther.map(customActionRow)), mkAddAction("other")) },
+    { id: "limited",  label: "Limited Use",  build: () => ovPane(ovList(otherLimited.map(featureRow)), mkAddAction("other")) },
   ];
   return buildSubTabPane("actions", subs, state);
 }
@@ -1294,34 +1325,45 @@ function customActionPip(store, action, idx) {
   return pip;
 }
 
-function openAddCustomActionModal(store) {
-  const nameInp = el("input", {
-    type: "text",
-    placeholder: "Second Wind, Bardic Inspiration, Channel Divinity…",
-    style: { width: "100%", padding: "var(--sp-1) var(--sp-2)", background: "var(--c-bg-0)", border: "1px solid var(--c-border)", color: "var(--c-text)", borderRadius: "var(--r-sm)", fontFamily: "inherit", fontSize: "var(--fs-sm)" }
-  });
-  const saveBtn   = el("button", { class: "btn btn--primary" }, "Add");
+function openAddCustomActionModal(store, defaultType = "action", existingAction = null) {
+  const ACTION_TYPES = [
+    { value: "action",      label: "Action" },
+    { value: "bonusAction", label: "Bonus Action" },
+    { value: "reaction",    label: "Reaction" },
+    { value: "other",       label: "Other / Limited Use" },
+  ];
+  const fieldStyle = { width: "100%", padding: "var(--sp-1) var(--sp-2)", background: "var(--c-bg-0)", border: "1px solid var(--c-border)", color: "var(--c-text)", borderRadius: "var(--r-sm)", fontFamily: "inherit", fontSize: "var(--fs-sm)" };
+  const nameInp = el("input", { type: "text", placeholder: "Second Wind, Bardic Inspiration…", style: { ...fieldStyle }, value: existingAction?.name || "" });
+  const typeSelect = el("select", { style: { ...fieldStyle, marginTop: "var(--sp-2)" } },
+    ...ACTION_TYPES.map(t => el("option", { value: t.value, selected: (existingAction?.actionType || defaultType) === t.value ? "true" : null }, t.label))
+  );
+  const saveBtn   = el("button", { class: "btn btn--primary" }, existingAction ? "Save" : "Add");
   const cancelBtn = el("button", { class: "btn btn--ghost" }, "Cancel");
   const m = openModal({
-    title: "Add Custom Action",
+    title: existingAction ? "Edit Action" : "Add Custom Action",
     body: el("div", { class: "notes-editor" },
-      el("div", { class: "notes-editor__label" }, "Action Name"),
-      nameInp
+      el("div", { class: "notes-editor__label" }, "Name"),
+      nameInp,
+      el("div", { class: "notes-editor__label", style: { marginTop: "var(--sp-2)" } }, "Type"),
+      typeSelect
     ),
     footer: [cancelBtn, saveBtn]
   });
   setTimeout(() => nameInp.focus(), 0);
-  nameInp.addEventListener("keydown", e => {
-    if (e.key === "Enter") saveBtn.click();
-    if (e.key === "Escape") m.close();
-  });
+  nameInp.addEventListener("keydown", e => { if (e.key === "Enter") saveBtn.click(); if (e.key === "Escape") m.close(); });
   cancelBtn.addEventListener("click", () => m.close());
   saveBtn.addEventListener("click", () => {
     const name = nameInp.value.trim();
     if (!name) return;
+    const actionType = typeSelect.value;
     store.update(x => {
       x.combat.customActions = x.combat.customActions || [];
-      x.combat.customActions.push({ id: `ca-${uuid()}`, name, used: false });
+      if (existingAction) {
+        const idx = x.combat.customActions.findIndex(a => a.id === existingAction.id);
+        if (idx >= 0) x.combat.customActions[idx] = { ...x.combat.customActions[idx], name, actionType };
+      } else {
+        x.combat.customActions.push({ id: `ca-${uuid()}`, name, used: false, actionType });
+      }
     });
     m.close();
   });

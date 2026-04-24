@@ -661,9 +661,12 @@ div.btn--edit-only { display: flex !important; }
   cursor: pointer;
   transition: border-color var(--tr-fast), background var(--tr-fast);
 }
+.ov-row--has-actions { grid-template-columns: 1.3fr 2fr auto; }
 .ov-row:hover { border-color: var(--c-gold-dim); background: var(--c-bg-1); }
 .ov-row__name { color: var(--c-gold); font-weight: 600; }
 .ov-row__meta { color: var(--c-text-dim); font-size: var(--fs-xs); }
+.ov-row__actions { display: flex; gap: 4px; align-items: center; }
+.ov-row__actions .btn { padding: 2px 6px; font-size: var(--fs-xs); line-height: 1.2; }
 .ov-empty {
   text-align: center;
   padding: var(--sp-4);
