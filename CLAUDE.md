@@ -64,12 +64,13 @@ UI components render from { store.doc, store.derived }
 | `js/engine/derive.js` | `deriveAll(doc)` — single pure function, the calculation engine. |
 | `js/engine/store.js` | `CharacterStore extends Emitter` — observable wrapper around a character doc. |
 | `js/engine/characterFactory.js` | `blankCharacter(partial)` — canonical empty doc shape + `SCHEMA_VERSION`. |
-| `js/engine/migrations.js` | Schema version migrations (v1→v2→v3). |
+| `js/engine/migrations.js` | Schema version migrations (v1→v2→v3→v4). |
 | `js/storage/idbStore.js` | IndexedDB via Dexie; falls back to localStorage if Dexie is unavailable. |
 | `js/storage/localStore.js` | `localStorage` roster index (id, name, class, level, hp — summary only). |
 | `js/ui/router.js` | Hash-based router. Routes: `#/roster`, `#/creator`, `#/sheet/:id`. |
-| `js/ui/screens/sheet.js` | Main character sheet — all 6 tabs. Very large file; all tab renders live here. |
+| `js/ui/screens/sheet.js` | Main character sheet. Single-page layout: stats grid at top, overview tab-card below. Very large file — Codex helpers, tab-card builders, and all section renderers live here. |
 | `js/ui/screens/` | Full-page screens: `roster.js`, `creator.js`, `sheet.js`. |
+| `js/ui/components/tabbedContainer.js` | `initTabbedContainer(root)` — wires `.mtab`/`.stab` click handlers scoped to `root`. Used in both the Roster screen and the sheet's overview tab-card. |
 | `js/ui/components/homebrewForm.js` | `openHomebrewForm({ schema, initial?, onSave })` — generic modal form builder driven by a schema object. |
 | `js/ui/components/detailModals.js` | `openSpellDetail`, `openItemDetail`, `openFeatureDetail` — click-to-view modals with source/notes editors and edit/revert buttons. |
 | `js/ui/components/existingCharacterForm.js` | `openExistingCharacterForm()` — modal for adding an already-established character (name + level only; everything else filled in on the sheet). |
@@ -274,19 +275,59 @@ el("div", { class: "panel__header" },
 )
 ```
 
-### Codex tab pattern
-The Codex tab (`renderCodexTab` in `js/ui/screens/sheet.js`) is a journal-styled multi-page view with its own internal navigation. `CODEX_SECTIONS` drives the TOC, dot navigator, and prev/next chevrons. Current page lives on `state.codexPage` (keyed off the shared sheet `state` object so it survives re-renders).
+### Overview tab-card (the sheet's primary navigation)
+The character sheet renders a single page — no top-level tab bar. Below the stats/skills grid is a nested tab-card built by `renderOverviewTabCard(store, state, rerender)` with six main tabs:
 
-Three kinds of pages:
-1. **Single-form pages** (Hero): one page rendering existing `lore.*` strings/arrays.
-2. **List pages** (Quests, Side Quests, People, Places, Factions, Gods, Bestiary): driven by a `*_CFG` config (`QUEST_CFG`, `NPC_CFG`, …) with `arrayKey`, `blank()`, and `fields[]`. `codexListPage(store, cfg)` renders them generically — one config per bucket.
+**Actions · Spells · Inventory · Features & Traits · Background · Codex**
+
+Each main tab has sub-tabs (e.g. Spells: All / Cantrips / Level 1-9 / Ritual / Concentration). The active main tab and per-group active sub-tab are persisted on `state.overview = { main, sub: { [groupId]: activeSubId } }` so selections survive store-update rerenders.
+
+Tab wiring uses `initTabbedContainer(tabCard)` plus extra click listeners that write back to `state.overview`.
+
+**Adding items** — every sub-pane has contextual "+" buttons created by factory functions (prefixed `mk`). Factories are required because a single DOM node can only have one parent — sharing an element across panes silently moves it.
+
+```js
+// ✓ factory — fresh node each call
+const mkAdd = () => ovAddBtn("+ Add", () => openHomebrewForm(...));
+// ✗ shared element — gets stolen by the last pane that appends it
+const addBtn = ovAddBtn("+ Add", ...);
+```
+
+### Codex pattern
+The **Codex** is embedded as the last main tab of the overview tab-card via `buildCodexPane`. Each of the 14 CODEX_SECTIONS becomes a sub-tab; its content is rendered by `renderCodexPage(host, sectionId, store)`.
+
+`CODEX_SECTIONS` (module-level const in `sheet.js`) drives both the embedded Codex sub-tabs and the standalone `renderCodexTab` (which still exists as reference but is no longer wired to any route).
+
+Three kinds of Codex pages:
+1. **Single-form pages** (Hero): renders existing `lore.*` strings/arrays as editable fields.
+2. **List pages** (Quests, Side Quests, People, Places, Factions, Gods, Bestiary): driven by a `*_CFG` config (`QUEST_CFG`, `NPC_CFG`, …) with `arrayKey`, `blank()`, and `fields[]`. `codexListPage(store, cfg)` renders them generically.
 3. **Prose pages** (History, World Lore, Journal): a single long `<textarea class="codex__prose">` bound to a `lore.*` string.
 
-All codex lists mutate via `store.update(x => x.lore[cfg.arrayKey].push(...))` and rely on the store's `"change"` → `rerender` hookup for UI refresh. Each entry has a stable `id` so index-based edits survive re-renders.
+All codex lists mutate via `store.update(x => x.lore[cfg.arrayKey].push(...))`. Each entry has a stable `id` so index-based edits survive re-renders.
 
-Maps (`lore.maps[]`) store images as base64 data URLs in `imageDataUrl` — there's no file path or remote fetch. Large maps inflate the character doc, but keep everything local/portable.
+Maps (`lore.maps[]`) store images as base64 data URLs in `imageDataUrl` — no file path or remote fetch.
 
-Styling lives in `css/phase1.css` under the `/* CODEX */` block — parchment gradients + ruled-line backgrounds, `.codex__book` as the page, `.codex__toc` as the ribbon sidebar, `.codex__card` for list entries (ruby left-border).
+Styling lives in `css/phase1.css` under the `/* CODEX */` block. The embedded variant uses `.codex--embedded` to reduce padding/shadow. Key classes: `.codex__book` (parchment page), `.codex__toc` (ribbon sidebar, standalone only), `.codex__card` (list entries, ruby left-border).
+
+### Nested tab-card pattern (roster + sheet)
+Both the Roster screen and the sheet's overview tab-card use the same two-level tab system from `js/ui/components/tabbedContainer.js`.
+
+HTML naming convention (must be exact):
+```html
+<div class="tab-card">
+  <div class="main-tab-bar">
+    <button class="mtab" data-main="X">Label</button>
+  </div>
+  <div class="main-pane" id="mp-X">
+    <div class="sub-tab-bar">
+      <button class="stab" data-group="X" data-sub="Y">Label</button>
+    </div>
+    <div class="sub-pane" id="sp-X-Y">…</div>
+  </div>
+</div>
+```
+
+`initTabbedContainer(root)` wires all click handlers scoped to `root` — safe to call on detached DOM and supports multiple independent tab-cards on the same page. Apply `.active` to the initial mtab/main-pane/stab/sub-pane before calling it.
 
 ---
 
@@ -329,6 +370,6 @@ SRD 5.1 only. What this means practically:
 
 ## Phased delivery
 
-- **Phase 1 (done):** Roster, creator (standard array), full sheet with 6 tabs (Overview, Combat, Spells, Inventory, Features, Codex), export/import, full stat overrides, custom spells/items/features/attacks, provenance tooltips, source+notes on everything (including per-stat notes/sources in override popovers), always-on inline editing (no edit-mode toggle), "Existing Character" quick-entry flow (name + level → blank sheet), identity editing from sheet header (class/race/alignment/level dropdowns), languages/proficiencies editable, journal-style Codex with 14 swipeable sections (Hero, Fellowship, Session Log, Quests, Side Quests, People, Places, Maps, Factions, Gods & Faiths, Bestiary, History, World Lore, Journal)
+- **Phase 1 (done):** Roster (nested tab-card: Roster/Library/Guide), creator (standard array), single-page character sheet with overview tab-card (6 main tabs: Actions, Spells, Inventory, Features & Traits, Background, Codex), export/import, full stat overrides, custom spells/items/features/attacks (add buttons in every sub-pane), provenance tooltips on all tab-card rows (hover shows description + source + notes + More button), source+notes on everything (per-stat notes/sources in override popovers), always-on inline editing (no edit-mode toggle), "Existing Character" quick-entry flow (name + level → blank sheet), identity editing from sheet header (class/race/alignment/level dropdowns), languages/proficiencies editable, Codex embedded as tab with 14 sections (Hero, Fellowship, Session Log, Quests, Side Quests, People, Places, Maps, Factions, Gods & Faiths, Bestiary, History, World Lore, Journal) in lined-parchment style
 - **Phase 2:** Level-up flow, conditions tracker with rule tooltips, point buy ability scores, action economy from class features (Second Wind, etc.)
 - **Phase 3:** Multiclassing, print/PDF view, service worker for offline install, dice roll animations
