@@ -11,12 +11,25 @@ export function renderAbilityBlock(store) {
   const rows = ABILITY_KEYS.map(k => {
     const a = derived.abilities[k];
     const isOverridden = overrideMap[k] != null;
+    // The number under the modifier shows the *effective* score (override takes priority,
+    // else base + racial + ASI). Editing routes to the override when one is set,
+    // else to the base score so racial/ASI bonuses still apply on top.
     const scoreInput = el("input", {
       type: "number", min: "1", max: "30",
-      value: String(a.base),
+      value: String(a.score),
+      // stop the global click delegate (which routes data-override-path) from firing
+      // when the user just wants to edit the number.
+      onclick: (e) => e.stopPropagation(),
       onchange: (e) => {
         const v = Math.max(1, Math.min(30, parseInt(e.target.value, 10) || 10));
-        store.update(doc => { doc.abilityScores.base[k] = v; });
+        store.update(doc => {
+          if (isOverridden) {
+            doc.abilityScores.override = doc.abilityScores.override || {};
+            doc.abilityScores.override[k] = v;
+          } else {
+            doc.abilityScores.base[k] = v;
+          }
+        });
       }
     });
     const tile = el("div", {

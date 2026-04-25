@@ -43,6 +43,20 @@ export function deriveAll(c) {
   const savingThrows = new Set(primaryClass?.savingThrows || []);
   for (const s of c.proficiencies.savingThrowsExtra || []) savingThrows.add(s);
 
+  // ── Equipped item bonuses ──
+  // Items may declare a `bonuses` block on their custom data (or top-level for SRD overrides):
+  //   bonuses: {
+  //     skills: { stealth: 2 },
+  //     saves:  { dex: 2, all: 1 },     // "all" applies to every save
+  //     ac: 1,
+  //     speed: 0,
+  //     attack: 0,                       // generic attack bonus (not yet aggregated below)
+  //     spellSaveDc: 0, spellAttack: 0
+  //   }
+  // Bonuses are only applied when the item is equipped (or attuned & equipped for some).
+  // This keeps stat math honest: unequip the Cloak of Protection → +1 disappears.
+  const equippedBonuses = collectEquippedBonuses(c);
+
   const skills = {};
   for (const id of SKILL_IDS) {
     const ability = SKILLS[id].ability;
@@ -72,7 +86,11 @@ export function deriveAll(c) {
     }
 
     const multiplier = level === "expertise" ? 2 : level === "proficient" ? 1 : 0;
-    const baseMod = abilities[ability].mod + profBonus * multiplier;
+    const itemBonus = (equippedBonuses.skills[id] || 0) + (equippedBonuses.skills.all || 0);
+    const baseMod = abilities[ability].mod + profBonus * multiplier + itemBonus;
+    if (itemBonus !== 0) {
+      sources.push({ kind: "item", label: `Equipped items: ${itemBonus >= 0 ? "+" : ""}${itemBonus}` });
+    }
     const skillOverride = c.proficiencies?.skillOverrides?.[id];
     if (skillOverride != null) {
       sources.push({ kind: "override", label: `Manual override: ${skillOverride >= 0 ? "+" : ""}${skillOverride}` });
@@ -85,6 +103,7 @@ export function deriveAll(c) {
       level,
       modifier: pickOverride(skillOverride, baseMod),
       overridden: skillOverride != null,
+      itemBonus,
       sources
     };
   }
@@ -98,7 +117,11 @@ export function deriveAll(c) {
     const fromExtra = (c.proficiencies.savingThrowsExtra || []).includes(k);
     if (fromClass) sources.push({ kind: "class", label: `${primaryClass.name} class` });
     if (fromExtra) sources.push({ kind: "manual", label: "Added manually" });
-    const baseSave = abilities[k].mod + (prof ? profBonus : 0);
+    const itemBonus = (equippedBonuses.saves[k] || 0) + (equippedBonuses.saves.all || 0);
+    const baseSave = abilities[k].mod + (prof ? profBonus : 0) + itemBonus;
+    if (itemBonus !== 0) {
+      sources.push({ kind: "item", label: `Equipped items: ${itemBonus >= 0 ? "+" : ""}${itemBonus}` });
+    }
     const saveOverride = c.proficiencies?.saveOverrides?.[k];
     if (saveOverride != null) {
       sources.push({ kind: "override", label: `Manual override: ${saveOverride >= 0 ? "+" : ""}${saveOverride}` });
@@ -108,16 +131,19 @@ export function deriveAll(c) {
       proficient: prof,
       modifier: pickOverride(saveOverride, baseSave),
       overridden: saveOverride != null,
+      itemBonus,
       sources
     };
   }
 
-  // AC
-  const ac = computeAc(c, abilities, primaryClass);
+  // AC — add item bonuses (e.g. Cloak of Protection +1) when no hard override is set
+  const ac = computeAc(c, abilities, primaryClass) +
+    (c.combat.acOverride != null ? 0 : equippedBonuses.ac);
 
-  // Speed
+  // Speed — add item bonuses when no hard override is set
   const raceSpeed = resolvedRace?.speed ?? 30;
-  const speed = pickOverride(c.combat?.speedOverride, raceSpeed + (c.combat.speedBonus || 0));
+  const speed = pickOverride(c.combat?.speedOverride,
+    raceSpeed + (c.combat.speedBonus || 0) + equippedBonuses.speed);
 
   // HP level-up source HP (for display; actual maxHp is persisted)
   const hitDie = pickOverride(c.combat?.hitDieOverride, primaryClass?.hitDie || 8);
@@ -279,6 +305,44 @@ export function deriveAll(c) {
 }
 
 function slug(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
+
+/**
+ * Sum the `bonuses` block from every equipped item.
+ * Returned shape:
+ *   { skills: {stealth: 2, all: 0, …}, saves: {dex: 2, all: 0, …}, ac: 0, speed: 0, … }
+ *
+ * Items expose bonuses via either `it.bonuses` (top-level on the instance) or
+ * `it.custom.bonuses` (inside the homebrew blob). Both are merged.
+ */
+function collectEquippedBonuses(c) {
+  const out = { skills: {}, saves: {}, ac: 0, speed: 0, attack: 0, spellSaveDc: 0, spellAttack: 0, hp: 0 };
+  const items = c.equipment?.items || [];
+  for (const it of items) {
+    if (!it.equipped) continue;
+    const fromCustom = it.custom?.bonuses;
+    const fromInstance = it.bonuses;
+    for (const b of [fromCustom, fromInstance]) {
+      if (!b || typeof b !== "object") continue;
+      if (b.skills && typeof b.skills === "object") {
+        for (const [k, v] of Object.entries(b.skills)) {
+          out.skills[k] = (out.skills[k] || 0) + (Number(v) || 0);
+        }
+      }
+      if (b.saves && typeof b.saves === "object") {
+        for (const [k, v] of Object.entries(b.saves)) {
+          out.saves[k] = (out.saves[k] || 0) + (Number(v) || 0);
+        }
+      }
+      if (Number.isFinite(b.ac))          out.ac          += b.ac;
+      if (Number.isFinite(b.speed))       out.speed       += b.speed;
+      if (Number.isFinite(b.attack))      out.attack      += b.attack;
+      if (Number.isFinite(b.spellSaveDc)) out.spellSaveDc += b.spellSaveDc;
+      if (Number.isFinite(b.spellAttack)) out.spellAttack += b.spellAttack;
+      if (Number.isFinite(b.hp))          out.hp          += b.hp;
+    }
+  }
+  return out;
+}
 
 function buildProficiencyDetails({ class: classList, manual, race, className, raceName, meta = {} }) {
   const out = {};

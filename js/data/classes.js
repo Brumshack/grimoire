@@ -349,15 +349,39 @@ export const CLASSES = {
       { level: 18, name: "Feral Senses", desc: "When fighting creatures you can't see, no disadvantage on attacks. Aware of invisible creatures within 30 ft." },
       { level: 20, name: "Foe Slayer", desc: "Once per turn, add WIS mod to attack or damage roll vs. a favored enemy." }
     ],
-    subclasses: [{
-      id: "hunter", name: "Hunter", level: 3,
-      features: [
-        { level: 3, name: "Hunter's Prey", desc: "Choose one: Colossus Slayer, Giant Killer, or Horde Breaker." },
-        { level: 7, name: "Defensive Tactics", desc: "Choose one: Escape the Horde, Multiattack Defense, or Steel Will." },
-        { level: 11, name: "Multiattack", desc: "Choose one: Volley (AoE ranged) or Whirlwind Attack (AoE melee)." },
-        { level: 15, name: "Superior Hunter's Defense", desc: "Choose one: Evasion, Stand Against the Tide, or Uncanny Dodge." }
-      ]
-    }]
+    subclasses: [
+      {
+        id: "hunter", name: "Hunter", level: 3,
+        features: [
+          { level: 3, name: "Hunter's Prey", desc: "Choose one: Colossus Slayer, Giant Killer, or Horde Breaker." },
+          { level: 7, name: "Defensive Tactics", desc: "Choose one: Escape the Horde, Multiattack Defense, or Steel Will." },
+          { level: 11, name: "Multiattack", desc: "Choose one: Volley (AoE ranged) or Whirlwind Attack (AoE melee)." },
+          { level: 15, name: "Superior Hunter's Defense", desc: "Choose one: Evasion, Stand Against the Tide, or Uncanny Dodge." }
+        ]
+      },
+      // Monster Slayer Conclave (Xanathar's Guide to Everything). Non-SRD; included
+      // here so home games that use it get clean Class Features rendering and the
+      // bonus spells flag without forcing every Monster Slayer feature to live in
+      // features.custom[]. Each feature description is summarised; full RAW text
+      // can be pulled from the wikidot link in the import-vault skill.
+      {
+        id: "monster-slayer", name: "Monster Slayer", level: 3,
+        bonusSpells: {
+          3:  ["Protection from Evil and Good"],
+          5:  ["Zone of Truth"],
+          9:  ["Magic Circle"],
+          13: ["Banishment"],
+          17: ["Hold Monster"]
+        },
+        features: [
+          { level: 3,  name: "Hunter's Sense", desc: "Action. Choose one creature within 60 ft you can see; learn whether it has any damage immunities, resistances, and vulnerabilities, and what they are. Uses per long rest = WIS modifier (min 1)." },
+          { level: 3,  name: "Slayer's Prey", desc: "Bonus action. Designate one creature within 60 ft you can see as your prey. The first time each turn you hit it with a weapon attack, it takes an extra 1d6 damage. Lasts until you finish a short or long rest, or you use this feature on a different creature." },
+          { level: 7,  name: "Supernatural Defense", desc: "Whenever your Slayer's Prey target forces you to make a saving throw, or you make an ability check to escape a grapple, add 1d6 to your roll." },
+          { level: 11, name: "Magic-User's Nemesis", desc: "Reaction. When a creature within 60 ft casts a spell or teleports, force a Wisdom save (DC = your spell save DC). On a fail, the spell or teleport fails and is wasted. Once per short or long rest." },
+          { level: 15, name: "Slayer's Counter", desc: "Reaction. When your Slayer's Prey target forces you to make a saving throw, make one weapon attack against it before rolling the save. If the attack hits, you automatically succeed on the save (in addition to the attack's normal effects)." }
+        ]
+      }
+    ]
   }),
 
   rogue: c({

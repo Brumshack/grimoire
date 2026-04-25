@@ -412,16 +412,30 @@ function statBlock(store) {
     return r;
   };
 
+  // Tooltip summaries that respect the override state — when a stat is overridden
+  // the tooltip should read "Manually set" rather than claim the formula value.
+  const acOv = doc.combat.acOverride != null;
+  const initOv = doc.combat.initiativeOverride != null;
+  const speedOv = doc.combat.speedOverride != null;
+  const profOv = doc.combat.profBonusOverride != null;
+  const ppOv = doc.combat.passiveOverrides?.perception != null;
+  const hdOv = doc.combat.hitDieOverride != null;
+
   return el("div", { class: "panel panel--stats" },
     el("div", { class: "stat-pair-grid" },
-      row("AC", d.ac, { title: "Armor Class", summary: "Base AC. Auto-calculated from equipped armor, shield, and ability modifiers." }, "ac", doc.combat.acOverride != null, "ac"),
-      row("Initiative", fmt(d.initiative), { title: "Initiative", summary: `DEX mod${doc.combat.initiativeBonus ? " + " + doc.combat.initiativeBonus : ""}.` }, "initiative", doc.combat.initiativeOverride != null, "initiative"),
-      row("Speed", `${d.speed} ft`, { title: "Speed", summary: "Walking speed in feet." }, "speed", doc.combat.speedOverride != null, "speed"),
-      row("Prof. Bonus", `+${d.profBonus}`, { title: "Proficiency Bonus", summary: `+${d.profBonus} at level ${d.totalLevel}.` }, "profBonus", doc.combat.profBonusOverride != null, "profBonus"),
-      row("Passive Perception", d.passivePerception, { title: "Passive Perception", summary: "10 + Perception modifier." }, "passivePerception", doc.combat.passiveOverrides?.perception != null, "passivePerception"),
-      row("Hit Dice", `${Math.max(0, d.totalLevel - (doc.combat.hitDiceUsed?.[`d${d.hitDie}`] || 0))} / ${d.totalLevel} d${d.hitDie}`, { title: "Hit Dice", summary: "Spent on short rests to recover HP." }, "hitDie", doc.combat.hitDieOverride != null, "hitDie"),
+      row("AC", d.ac, { title: "Armor Class", summary: acOv ? `Manually set to ${d.ac}.` : "Base AC. Auto-calculated from equipped armor, shield, and ability modifiers." }, "ac", acOv, "ac"),
+      row("Initiative", fmt(d.initiative), { title: "Initiative", summary: initOv ? `Manually set to ${fmt(d.initiative)}.` : `DEX mod${doc.combat.initiativeBonus ? " + " + doc.combat.initiativeBonus : ""}.` }, "initiative", initOv, "initiative"),
+      row("Speed", `${d.speed} ft`, { title: "Speed", summary: speedOv ? `Manually set to ${d.speed} ft.` : "Walking speed in feet." }, "speed", speedOv, "speed"),
+      row("Prof. Bonus", `+${d.profBonus}`, { title: "Proficiency Bonus", summary: profOv ? `Manually set to +${d.profBonus} (overrides the level ${d.totalLevel} default of +${proficiencyBonusForLevel(d.totalLevel)}).` : `+${d.profBonus} at level ${d.totalLevel}.` }, "profBonus", profOv, "profBonus"),
+      row("Passive Perception", d.passivePerception, { title: "Passive Perception", summary: ppOv ? `Manually set to ${d.passivePerception}.` : "10 + Perception modifier." }, "passivePerception", ppOv, "passivePerception"),
+      row("Hit Dice", `${Math.max(0, d.totalLevel - (doc.combat.hitDiceUsed?.[`d${d.hitDie}`] || 0))} / ${d.totalLevel} d${d.hitDie}`, { title: "Hit Dice", summary: hdOv ? `Manually set to d${d.hitDie}.` : "Spent on short rests to recover HP." }, "hitDie", hdOv, "hitDie"),
     )
   );
+}
+
+// Local PB formula (don't import to avoid circular concerns) — used only in tooltip text.
+function proficiencyBonusForLevel(lv) {
+  return Math.ceil(1 + (Math.max(1, lv) / 4));
 }
 
 function renderCombatQuick(store) {
@@ -454,7 +468,31 @@ function renderSpellcastingQuick(store) {
   const sn = sc.statNotes   || {};
   const ss = sc.statSources || {};
 
-  const spPair = (label, value, overridePath, isOverridden, tipTitle, tipSummary, noteKey) => {
+  // Derive a "Computed: …" breakdown for each spellcasting stat so the tooltip
+  // ALWAYS explains why the number is what it is, even when the user hasn't
+  // typed a custom source/notes string. The user-supplied `acquiredFrom` line
+  // (if any) is stitched together with the auto breakdown via newline.
+  const cls = d.primaryClass;
+  const ability = d.spellAbility;
+  const abilMod = ability ? d.abilities[ability]?.mod : null;
+  const fmtMod = (m) => m == null ? "—" : (m >= 0 ? `+${m}` : `${m}`);
+
+  const abilityBreakdown = ability
+    ? `${ability.toUpperCase()} is your spellcasting ability` +
+      (cls?.spellcasting?.ability === ability ? ` (${cls.name} class).` : `.`)
+    : "No spellcasting class.";
+
+  const dcBreakdown = (ability && abilMod != null && d.profBonus != null)
+    ? `Computed: 8 + Prof ${d.profBonus} + ${ability.toUpperCase()} ${fmtMod(abilMod)} = ${8 + d.profBonus + abilMod}` +
+      (sc.saveDcOverride != null ? ` · Override: ${sc.saveDcOverride}` : "")
+    : "Spell Save DC not derivable without a casting class.";
+
+  const atkBreakdown = (ability && abilMod != null && d.profBonus != null)
+    ? `Computed: Prof ${d.profBonus} + ${ability.toUpperCase()} ${fmtMod(abilMod)} = ${fmtMod(d.profBonus + abilMod)}` +
+      (sc.attackOverride != null ? ` · Override: ${fmtMod(sc.attackOverride)}` : "")
+    : "Spell Attack not derivable without a casting class.";
+
+  const spPair = (label, value, overridePath, isOverridden, tipTitle, tipSummary, autoSource, noteKey) => {
     const r = el("div", {
       class: "stat-pair",
       "data-override-path": overridePath,
@@ -463,9 +501,13 @@ function renderSpellcastingQuick(store) {
       el("div", { class: "stat-pair__label" }, label),
       el("div", { class: "stat-pair__value" }, value)
     );
+    // If the user wrote a source label, prefer it; otherwise show the
+    // auto-derived breakdown so hovering always tells you WHY this number is
+    // this number. acquiredFrom ends up rendered under "Acquired from".
+    const acquired = ss[noteKey] || autoSource || null;
     bindTooltip(r, {
       title: tipTitle,
-      html: buildTooltipHtml({ baseText: tipSummary, acquiredFrom: ss[noteKey] || null, userNotes: sn[noteKey] || null })
+      html: buildTooltipHtml({ baseText: tipSummary, acquiredFrom: acquired, userNotes: sn[noteKey] || null })
     });
     return r;
   };
@@ -473,9 +515,9 @@ function renderSpellcastingQuick(store) {
   return el("div", { class: "panel panel--spellcasting" },
     el("h3", {}, "Spellcasting"),
     el("div", { class: "stat-pair-grid" },
-      spPair("Ability",  d.spellAbility?.toUpperCase() || "—", "spellAbility", !!sc.abilityOverride,       "Spellcasting Ability", "The ability used for spell attacks and save DCs.",    "spellAbility"),
-      spPair("Save DC",  d.spellSaveDC ?? "—",                 "spellSaveDC",  sc.saveDcOverride != null,  "Spell Save DC",        "DC that enemies must beat to resist your spells.",    "spellSaveDC"),
-      spPair("Attack",   fmt(d.spellAttack),                   "spellAttack",  sc.attackOverride != null,  "Spell Attack Bonus",   "Bonus added to your spell attack rolls.",             "spellAttack"),
+      spPair("Ability",  d.spellAbility?.toUpperCase() || "—", "spellAbility", !!sc.abilityOverride,       "Spellcasting Ability", "The ability used for spell attacks and save DCs.",    abilityBreakdown, "spellAbility"),
+      spPair("Save DC",  d.spellSaveDC ?? "—",                 "spellSaveDC",  sc.saveDcOverride != null,  "Spell Save DC",        "DC that enemies must beat to resist your spells.",    dcBreakdown,      "spellSaveDC"),
+      spPair("Attack",   fmt(d.spellAttack),                   "spellAttack",  sc.attackOverride != null,  "Spell Attack Bonus",   "Bonus added to your spell attack rolls.",             atkBreakdown,     "spellAttack"),
     )
   );
 }
@@ -485,12 +527,13 @@ const fmt = m => m == null ? "—" : (m >= 0 ? `+${m}` : `${m}`);
 /* ─────────────────────── overview tab-card ─────────────────────── */
 
 const OVERVIEW_MAIN_TABS = [
-  { id: "actions",     label: "Actions" },
-  { id: "spells",      label: "Spells" },
-  { id: "inventory",   label: "Inventory" },
-  { id: "features",    label: "Features & Traits" },
-  { id: "backgrounds", label: "Background" },
-  { id: "codex",       label: "Codex" },
+  { id: "actions",       label: "Actions" },
+  { id: "spells",        label: "Spells" },
+  { id: "inventory",     label: "Inventory" },
+  { id: "features",      label: "Features & Traits" },
+  { id: "proficiencies", label: "Proficiencies" },
+  { id: "backgrounds",   label: "Background" },
+  { id: "codex",         label: "Codex" },
 ];
 
 function renderOverviewTabCard(store, state, rerender) {
@@ -498,12 +541,13 @@ function renderOverviewTabCard(store, state, rerender) {
 
   const mainPanes = OVERVIEW_MAIN_TABS.map(m => {
     switch (m.id) {
-      case "actions":     return buildActionsPane(store, state);
-      case "spells":      return buildSpellsPane(store, state);
-      case "inventory":   return buildInventoryPane(store, state);
-      case "features":    return buildFeaturesPane(store, state);
-      case "backgrounds": return buildBackgroundsPane(store, state);
-      case "codex":       return buildCodexPane(store, state, rerender);
+      case "actions":       return buildActionsPane(store, state);
+      case "spells":        return buildSpellsPane(store, state);
+      case "inventory":     return buildInventoryPane(store, state);
+      case "features":      return buildFeaturesPane(store, state);
+      case "proficiencies": return buildProficienciesPane(store, state);
+      case "backgrounds":   return buildBackgroundsPane(store, state);
+      case "codex":         return buildCodexPane(store, state, rerender);
     }
   });
 
@@ -611,13 +655,41 @@ function buildActionsPane(store, state) {
   const customActions = doc.combat.customActions || [];
 
   const features = d.features || [];
+  // Combat feats and Fighting Styles describe their effects in terms of bonus actions
+  // ("you can use a bonus action to attack with a hand crossbow"), but they're not
+  // *castable* abilities — they're passive-eligible feats that live under Features
+  // & Traits → Combat Feats. Excluding them here keeps the Bonus Action tab as a list
+  // of "things you actively spend a bonus action on" rather than feat reference rows.
+  const FEAT_PATTERN = /\bfeat\b|fighting style|crossbow expert|sharpshooter|great weapon master|polearm master|war caster|sentinel|lucky|alert|tough|magic initiate|tavern brawler|inspiring leader|dual wielder|mobile|defensive duelist|elemental adept|grappler|charger|healer|heavy armor master|keen mind|linguist|mage slayer|medium armor master|observant|resilient|ritual caster|savage attacker|skill expert|piercer|slasher|crusher/i;
+  const isCombatFeatLike = (f) => FEAT_PATTERN.test(f.source || "") || FEAT_PATTERN.test(f.name || "");
   const matchAction   = (f) => /(^|\b)as an action\b|\buse (a|your) action\b|\btake the .* action\b/i.test(f.desc || "");
   const matchBonus    = (f) => /\bbonus action\b/i.test(f.desc || "");
   const matchReaction = (f) => /\breaction\b/i.test(f.desc || "");
-  const actionFeats   = features.filter(f => matchAction(f)   && !matchBonus(f) && !matchReaction(f));
-  const bonusFeats    = features.filter(f => matchBonus(f));
-  const reactionFeats = features.filter(f => matchReaction(f));
+  const actionFeats   = features.filter(f => matchAction(f)   && !matchBonus(f) && !matchReaction(f) && !isCombatFeatLike(f));
+  const bonusFeats    = features.filter(f => matchBonus(f)    && !isCombatFeatLike(f));
+  const reactionFeats = features.filter(f => matchReaction(f) && !isCombatFeatLike(f));
   const otherLimited  = features.filter(f => /\buses?\b.*(per|\/)\s*(short|long) rest|\b(\d+)\s*\/\s*(short|long) rest/i.test(f.desc || ""));
+
+  // ── Spells, classified by casting time ──
+  // Pull every spell the character knows (SRD + custom). castingTime drives bucket:
+  //   "1 action"        → attack/action lists (attack-shaped spells go to Attack)
+  //   "1 bonus action"  → bonus action list
+  //   "1 reaction"      → reaction list (this is why Shield wasn't appearing — the
+  //                       pane previously iterated only features.desc, not spells)
+  const allSpells = collectKnownSpells(doc);
+  const spellAct  = allSpells.filter(s => /\b1?\s*action\b/i.test(s.castingTime || "") && !/bonus/i.test(s.castingTime || "") && !/reaction/i.test(s.castingTime || ""));
+  const spellBonus    = allSpells.filter(s => /bonus action/i.test(s.castingTime || ""));
+  const spellReaction = allSpells.filter(s => /reaction/i.test(s.castingTime || ""));
+  // Attack-shaped spells = ones whose description implies a roll-to-hit or save-for-damage.
+  // Heuristic: description contains "spell attack" OR "make a ranged/melee" OR damage dice pattern (NdM).
+  const isAttackSpell = (s) => {
+    const txt = `${s.description || ""} ${s.higherLevel || ""}`;
+    return /\bspell attack\b/i.test(txt)
+        || /\b(ranged|melee)\s+(spell\s+)?attack\b/i.test(txt)
+        || /\b\d+d\d+\s+(damage|fire|cold|lightning|necrotic|psychic|radiant|thunder|acid|poison|force|bludgeoning|piercing|slashing)/i.test(txt);
+  };
+  const attackSpells = spellAct.filter(isAttackSpell);
+  const nonAttackActionSpells = spellAct.filter(s => !attackSpells.includes(s));
 
   const weaponRows = equippedWeapons.map(({ instance, base }) => {
     const meta = `${base.damage || "—"} ${base.damageType || ""} · ${base.range || "melee"}`;
@@ -709,22 +781,139 @@ function buildActionsPane(store, state) {
 
   const customAttackRows = customAttacks.map(customAttackRow);
 
+  // Render a spell as an action row (clickable to open the spell detail modal).
+  const spellRow = (s) => {
+    const meta = `${s.castingTime || ""} · ${s.range || "—"}${s.concentration ? " · C" : ""}${s.ritual ? " · R" : ""}`;
+    const row = ovRow(s.name + (s.custom ? " ★" : "") + " · spell", meta, () => openSpellDetail(s, { store }));
+    bindTooltip(row, {
+      title: s.name,
+      html: buildTooltipHtml({
+        baseText: `${meta}\n\n${(s.description || "").slice(0, 200)}${(s.description?.length || 0) > 200 ? "…" : ""}`,
+        acquiredFrom: doc.spellcasting?.spellSources?.[s.id] || s._acquiredFrom || "",
+        userNotes: doc.spellcasting?.spellNotes?.[s.id] || s._userNotes || ""
+      }),
+      sourceRef: s.custom ? "Homebrew" : "SRD",
+      onMore: () => openSpellDetail(s, { store })
+    });
+    return row;
+  };
+
+  // ── D&D 5e (2014) basic actions cheat sheet ──
+  // Pulled from PHB Ch.9. Shown as inert reference rows under a sub-header on each
+  // action-type pane so users can remember Help / Disengage / Dodge etc. mid-combat.
+  const cheatSheetRow = (name, desc) => {
+    const row = ovRow(name, desc, null);
+    row.classList.add("ov-row--cheat");
+    bindTooltip(row, { title: name, html: buildTooltipHtml({ baseText: desc }) });
+    return row;
+  };
+  const BASIC_ACTIONS = [
+    ["Attack",       "Make one melee or ranged attack. Replace with multiple attacks if you have Extra Attack."],
+    ["Cast a Spell", "Cast a spell with a casting time of 1 action."],
+    ["Dash",         "Gain extra movement equal to your speed for the turn."],
+    ["Disengage",    "Your movement doesn't provoke opportunity attacks for the rest of the turn."],
+    ["Dodge",        "Attacks against you have disadvantage; you have advantage on Dex saves. Lost if incapacitated or speed = 0."],
+    ["Help",         "Give an ally advantage on their next ability check, or on their next attack against a target within 5 ft. of you."],
+    ["Hide",         "Make a Stealth check (DM decides if you can hide)."],
+    ["Ready",        "Choose a trigger and a reaction; the reaction fires when the trigger occurs (uses your reaction)."],
+    ["Search",       "Devote attention to finding something. Usually a Wisdom (Perception) or Intelligence (Investigation) check."],
+    ["Use an Object", "Interact with a second object on your turn (the first interaction is free)."],
+    ["Improvise",    "Attempt anything not on this list — DM decides ability check / attack roll required."],
+  ];
+  const BASIC_BONUS_ACTIONS = [
+    ["Two-Weapon Fighting", "If you took the Attack action and attacked with a light melee weapon in one hand, you can attack with another light melee weapon in the other hand."],
+    ["Off-Hand Attack",     "Bonus-action attack with a light weapon you used for two-weapon fighting (no ability mod added unless negative)."],
+    ["Class / Spell Bonus", "Anything else granted by a class feature, spell, or feat that explicitly costs a bonus action (e.g. Cunning Action, Healing Word)."],
+  ];
+  const BASIC_REACTIONS = [
+    ["Opportunity Attack", "When a hostile creature you can see leaves your reach, use your reaction to make one melee attack against it."],
+    ["Ready (triggered)",  "When a trigger you set with the Ready action occurs, use your reaction to take the readied action."],
+    ["Class / Spell Reaction", "Anything else that explicitly costs a reaction (e.g. Shield, Counterspell, Hellish Rebuke, Uncanny Dodge)."],
+  ];
+  const cheatSheet = (rows) => el("div", { class: "ov-cheat" },
+    el("h4", { class: "ov-group-h ov-group-h--cheat" }, rows[0]),
+    ...rows[1].map(([n, d]) => cheatSheetRow(n, d))
+  );
+
+  // Build a sub-pane that's split into NAMED CATEGORIES with sub-headers. Each
+  // section is alphabetised. Empty sections render an em-dash placeholder so the
+  // structure is always visible — this is the categorisation the user asked for
+  // ("Weapon Attack / Spell Attack / Other Actions" inside Action; "Spell Bonus
+  // Actions / Other Bonus Actions" inside Bonus Action; etc.)
+  const alpha = (rows) => rows.slice().sort((a, b) => {
+    const an = a?.querySelector?.(".ov-row__name")?.textContent || "";
+    const bn = b?.querySelector?.(".ov-row__name")?.textContent || "";
+    return an.localeCompare(bn);
+  });
+  const categorisedPane = (groups, addBtns = [], cheatTitle, cheatRows) => {
+    const parts = [];
+    for (const [heading, rows] of groups) {
+      parts.push(el("h4", { class: "ov-group-h" }, heading));
+      parts.push(rows.length ? ovList(alpha(rows)) : ovEmpty("—"));
+    }
+    return el("div", {},
+      el("div", {}, ...parts),
+      addBtns.length ? ovAddBar(...addBtns) : null,
+      cheatRows ? cheatSheet([cheatTitle, cheatRows]) : null
+    );
+  };
+
+  // Combined Action tab (Attack + Action merged): three categories.
+  const actionGroups = () => [
+    ["Weapon Attacks", [...weaponRows, ...customAttackRows]],
+    ["Spell Attacks",  attackSpells.map(spellRow)],
+    ["Other Actions",  [...actionFeats.map(featureRow), ...caByType("action").map(customActionRow), ...nonAttackActionSpells.map(spellRow)]]
+  ];
+  const bonusGroups = () => [
+    ["Spell Bonus Actions", spellBonus.map(spellRow)],
+    ["Other Bonus Actions", [...bonusFeats.map(featureRow), ...caByType("bonusAction").map(customActionRow)]]
+  ];
+  const reactionGroups = () => [
+    ["Spell Reactions", spellReaction.map(spellRow)],
+    ["Other Reactions", [...reactionFeats.map(featureRow), ...caByType("reaction").map(customActionRow)]]
+  ];
+
+  // The All tab gets the full set of category subheaders, alphabetised within each.
+  const allGroups = () => [
+    ["Weapon Attacks",      [...weaponRows, ...customAttackRows]],
+    ["Spell Attacks",       attackSpells.map(spellRow)],
+    ["Other Actions",       [...actionFeats.map(featureRow), ...caByType("action").map(customActionRow), ...nonAttackActionSpells.map(spellRow)]],
+    ["Spell Bonus Actions", spellBonus.map(spellRow)],
+    ["Other Bonus Actions", [...bonusFeats.map(featureRow), ...caByType("bonusAction").map(customActionRow)]],
+    ["Spell Reactions",     spellReaction.map(spellRow)],
+    ["Other Reactions",     [...reactionFeats.map(featureRow), ...caByType("reaction").map(customActionRow)]],
+    ["Other",               caOther.map(customActionRow)]
+  ];
+
   const subs = [
-    { id: "all", label: "All", build: () => ovPane(ovList([
-      ...weaponRows, ...customAttackRows,
-      ...actionFeats.map(featureRow),   ...caByType("action").map(customActionRow),
-      ...bonusFeats.map(featureRow),    ...caByType("bonusAction").map(customActionRow),
-      ...reactionFeats.map(featureRow), ...caByType("reaction").map(customActionRow),
-      ...caOther.map(customActionRow)
-    ]), mkAddAttack(), mkAddAction())},
-    { id: "attack",   label: "Attack",       build: () => ovPane(ovList([...weaponRows, ...customAttackRows]), mkAddAttack()) },
-    { id: "action",   label: "Action",       build: () => ovPane(ovList([...actionFeats.map(featureRow),   ...caByType("action").map(customActionRow)]),      mkAddAction("action")) },
-    { id: "bonus",    label: "Bonus Action", build: () => ovPane(ovList([...bonusFeats.map(featureRow),    ...caByType("bonusAction").map(customActionRow)]),  mkAddAction("bonusAction")) },
-    { id: "reaction", label: "Reaction",     build: () => ovPane(ovList([...reactionFeats.map(featureRow), ...caByType("reaction").map(customActionRow)]),     mkAddAction("reaction")) },
+    { id: "all",      label: "All",          build: () => categorisedPane(allGroups(),      [mkAddAttack(), mkAddAction()]) },
+    { id: "action",   label: "Action",       build: () => categorisedPane(actionGroups(),   [mkAddAttack(), mkAddAction("action")],   "Basic D&D Actions",        BASIC_ACTIONS) },
+    { id: "bonus",    label: "Bonus Action", build: () => categorisedPane(bonusGroups(),    [mkAddAction("bonusAction")],             "Basic D&D Bonus Actions",  BASIC_BONUS_ACTIONS) },
+    { id: "reaction", label: "Reaction",     build: () => categorisedPane(reactionGroups(), [mkAddAction("reaction")],                "Basic D&D Reactions",      BASIC_REACTIONS) },
     { id: "other",    label: "Other",        build: () => ovPane(ovList(caOther.map(customActionRow)), mkAddAction("other")) },
     { id: "limited",  label: "Limited Use",  build: () => ovPane(ovList(otherLimited.map(featureRow)), mkAddAction("other")) },
   ];
   return buildSubTabPane("actions", subs, state);
+}
+
+/**
+ * Gather every spell the character "knows" — SRD-listed spells from `knownSpells`
+ * (with overrides merged) plus all custom spells. Returns plain spell objects with
+ * `.id`, `.name`, `.castingTime`, `.description`, etc. Used by the Actions pane to
+ * classify spells by casting time (action / bonus action / reaction).
+ */
+function collectKnownSpells(doc) {
+  const out = [];
+  const known = doc.spellcasting?.knownSpells || [];
+  const overrides = doc.spellcasting?.spellOverrides || {};
+  for (const id of known) {
+    const base = SPELLS[id];
+    if (!base) continue;
+    const ov = overrides[id];
+    out.push(ov ? { ...base, ...ov, id } : base);
+  }
+  for (const s of doc.spellcasting?.custom || []) out.push(s);
+  return out;
 }
 
 /* ── Spells pane ── */
@@ -753,8 +942,17 @@ function buildSpellsPane(store, state) {
   const sc = doc.spellcasting || {};
   const spellRow = (s) => {
     const isCustom = !!s.custom;
-    const label = s.name + (isCustom ? " ★" : "") + (s.concentration ? " · C" : "") + (s.ritual ? " · R" : "");
-    const meta = `${s.school || ""} · ${s.castingTime || ""}`.trim();
+    // Title gets a star for homebrew. Concentration / Ritual flags moved to the meta
+    // line so the title stays clean and the badges read as plain English instead of
+    // single letters (the user wanted the word "Concentration" visible on the tile).
+    const label = s.name + (isCustom ? " ★" : "");
+    const tags = [
+      s.school || "",
+      s.castingTime || "",
+      s.concentration ? "Concentration" : "",
+      s.ritual ? "Ritual" : ""
+    ].filter(Boolean);
+    const meta = tags.join(" · ");
     const row = ovRow(label, meta, () => openSpellDetail(s, { store }));
     const compParts = [];
     if (s.components?.v) compParts.push("V");
@@ -781,8 +979,6 @@ function buildSpellsPane(store, state) {
   };
 
   const byLvl = (lvl) => spells.filter(s => (s.level ?? 0) === lvl);
-  const ritualList = spells.filter(s => s.ritual);
-  const concList   = spells.filter(s => s.concentration);
 
   const addCustomSpell = (lvl) => ovAddBtn(
     lvl === 0 ? "+ Add Custom Cantrip" : "+ Add Custom Spell",
@@ -825,6 +1021,7 @@ function buildSpellsPane(store, state) {
   }
 
   const subs = [
+    { id: "slots", label: "Slots", build: () => renderSlotTracker(store, d.slots) },
     { id: "all", label: "All", build: () => {
       const parts = [];
       if (byLvl(0).length) parts.push(el("h4", { class: "ov-group-h" }, "Cantrips"), ovList(byLvl(0).map(spellRow)));
@@ -836,13 +1033,11 @@ function buildSpellsPane(store, state) {
     }},
     { id: "cantrips", label: "Cantrips", build: () => ovPane(ovList(byLvl(0).map(spellRow)), addCustomSpell(0)) },
     ...levelSubs,
-    { id: "ritual",        label: "Ritual",        build: () => ovPane(ovList(ritualList.map(spellRow)), addCustomSpell(1)) },
-    { id: "concentration", label: "Concentration", build: () => ovPane(ovList(concList.map(spellRow)),   addCustomSpell(1)) },
   ];
-  return el("div", { class: "spells-pane" },
-    renderSlotTracker(store, d.slots),
-    buildSubTabPane("spells", subs, state)
-  );
+  // Ritual and Concentration sub-tabs were removed — those qualities are now shown
+  // directly on each spell tile's meta line (e.g. "evocation · 1 action · Concentration").
+  // Slots are now scoped to their own sub-tab — no longer permanently visible above the sub-tab bar.
+  return buildSubTabPane("spells", subs, state);
 }
 
 /* ── Inventory pane ── */
@@ -856,6 +1051,84 @@ function buildInventoryPane(store, state) {
     return (it.overrides && Object.keys(it.overrides).length)
       ? { ...baseData, ...it.overrides } : baseData;
   };
+
+  // Equip toggle button — flipping equipped status drives derived AC/skills/saves
+  // recomputation via the override pattern: items that grant bonuses should write
+  // those bonuses into proficiencies.skillOverrides / saveOverrides only when
+  // equipped. To keep this generic, we expose an equip toggle and re-derive on save.
+  const equipBtn = (it) => el("button", {
+    class: "btn btn--sm" + (it.equipped ? " btn--primary" : ""),
+    title: it.equipped ? "Unequip" : "Equip",
+    onclick: e => {
+      e.stopPropagation();
+      store.update(x => {
+        const target = x.equipment.items.find(r => r.instanceId === it.instanceId);
+        if (target) target.equipped = !target.equipped;
+      });
+    }
+  }, it.equipped ? "Unequip" : "Equip");
+
+  const attuneBtn = (it) => {
+    const base = getBase(it);
+    // only show attune button if the item supports/requires attunement, or already attuned
+    const attunable = base?.attunement || base?.requiresAttunement || it.attuned ||
+                      /requires attunement/i.test(base?.description || "");
+    if (!attunable) return null;
+    return el("button", {
+      class: "btn btn--sm" + (it.attuned ? " btn--primary" : ""),
+      title: it.attuned ? "End attunement" : "Attune",
+      onclick: e => {
+        e.stopPropagation();
+        store.update(x => {
+          const target = x.equipment.items.find(r => r.instanceId === it.instanceId);
+          if (target) target.attuned = !target.attuned;
+        });
+      }
+    }, it.attuned ? "Unattune" : "Attune");
+  };
+
+  const editBtn = (it) => {
+    const base = getBase(it);
+    if (!base) return null;
+    return el("button", {
+      class: "btn btn--sm",
+      title: "Edit / view details",
+      onclick: e => {
+        e.stopPropagation();
+        openItemDetail(base, { store, instanceId: it.instanceId });
+      }
+    }, "✎");
+  };
+
+  // Category editor — opens a popover with a checkbox per category. Items can live
+  // in multiple categories at once (e.g. Cloak of Protection is both Armor and a
+  // Magical Item). Saving writes `it.categories` (array). Selecting nothing clears
+  // both `it.categories` and the legacy `it.category` so heuristics resume.
+  const CATEGORY_LABELS = {
+    armor: "Armor", weapons: "Weapons", magical: "Magical Items", trinkets: "Trinkets",
+    food: "Food", potions: "Potions", personal: "Personal Items",
+    componentPouch: "Component Pouch", other: "Other"
+  };
+  const categoryBtn = (it) => el("button", {
+    class: "btn btn--sm",
+    title: "Categorize this item",
+    onclick: e => {
+      e.stopPropagation();
+      openItemCategoryPopover(store, it, e.currentTarget, CATEGORY_LABELS, categoriesFor);
+    }
+  }, "⚑");
+
+  const delBtn = (it) => el("button", {
+    class: "btn btn--sm btn--danger",
+    title: "Remove",
+    onclick: e => {
+      e.stopPropagation();
+      store.update(x => {
+        x.equipment.items = (x.equipment.items || []).filter(r => r.instanceId !== it.instanceId);
+      });
+    }
+  }, "×");
+
   const rowFor = (it) => {
     const base = getBase(it);
     if (!base) return null;
@@ -864,8 +1137,13 @@ function buildInventoryPane(store, state) {
                : base.type === "armor"  ? `AC ${base.ac} (${base.armorType})`
                : (base.description || "").slice(0, 80);
     const qty = it.quantity > 1 ? ` ×${it.quantity}` : "";
-    const row = ovRow(base.name + qty + (it.equipped ? " · equipped" : "") + (it.attuned ? " · attuned" : ""),
-      meta, () => openItemDetail(base, { store, instanceId: it.instanceId }));
+    const tags = [
+      it.equipped ? "equipped" : null,
+      it.attuned  ? "attuned"  : null
+    ].filter(Boolean).join(" · ");
+    const title = base.name + qty + (tags ? ` · ${tags}` : "");
+    const actions = [equipBtn(it), attuneBtn(it), categoryBtn(it), editBtn(it), delBtn(it)].filter(Boolean);
+    const row = ovRow(title, meta, () => openItemDetail(base, { store, instanceId: it.instanceId }), actions);
     const acquiredFrom = it.source || (isCustom ? (it.custom?._acquiredFrom || "") : "");
     const userNotes    = it.notes  || (isCustom ? (it.custom?._userNotes    || "") : "");
     bindTooltip(row, {
@@ -877,21 +1155,64 @@ function buildInventoryPane(store, state) {
     return row;
   };
 
-  const isComponentPouch = (it) => {
-    const base = getBase(it);
-    return /component pouch/i.test(base?.name || "");
+  // ── Categorisation ──
+  // An item can belong to ANY NUMBER of categories. The user override is `it.categories`
+  // (array) — if set, the item appears in every listed bucket. Legacy single-string
+  // `it.category` is migrated on read. If no override is set, heuristics decide a
+  // primary category PLUS auto-add "magical" when the item is magical (so e.g. a
+  // Cloak of Protection shows up in both Armor and Magical Items at once).
+  const nameOf = (it) => (getBase(it)?.name || "").toLowerCase();
+  const typeOf = (it) => (getBase(it)?.type || "").toLowerCase();
+
+  const isComponentPouch = (it) => /component pouch/i.test(nameOf(it));
+  const isPotion         = (it) => /potion|elixir|philter|tonic/i.test(nameOf(it));
+  const isFood           = (it) => /\b(ration|rations|food|bread|cheese|fruit|meat|provision|trail meal|water flask|waterskin|wine|ale|beer|mead)\b/i.test(nameOf(it));
+  const isWeapon         = (it) => typeOf(it) === "weapon";
+  const isArmor          = (it) => typeOf(it) === "armor";
+  const isMagical        = (it) => {
+    const b = getBase(it);
+    if (!b) return false;
+    if (b.rarity && b.rarity !== "" && b.rarity !== "common") return true;
+    if (b.attunement || b.requiresAttunement) return true;
+    if (typeOf(it) === "magic") return true;
+    if (it.attuned) return true;
+    return false;
   };
-  const isBackpack = (it) => {
-    const base = getBase(it);
-    return /backpack|haversack|sack$|\bpack\b/i.test(base?.name || "") && !isComponentPouch(it);
+  const isPersonal       = (it) => /\b(clothes|outfit|robe|cloak(?! of)|cape|hat|boots|gloves|belt|jewelry|necklace|earring|bracelet|signet|locket|memento|pouch|amulet)\b/i.test(nameOf(it));
+  const isTrinket        = (it) => typeOf(it) === "trinket" ||
+                                   /\btrinket\b/i.test(nameOf(it)) ||
+                                   /\btrinket\b/i.test(getBase(it)?.description || "");
+
+  const categoriesFor = (it) => {
+    // Explicit override from the user — array of category ids.
+    if (Array.isArray(it.categories) && it.categories.length) return [...new Set(it.categories)];
+    // Legacy single-string override.
+    if (typeof it.category === "string" && it.category) return [it.category];
+
+    const cats = new Set();
+    if (isComponentPouch(it)) cats.add("componentPouch");
+    if (isPotion(it))         cats.add("potions");
+    if (isFood(it))           cats.add("food");
+    if (isMagical(it))        cats.add("magical");
+    if (isWeapon(it))         cats.add("weapons");
+    if (isArmor(it))          cats.add("armor");
+    if (isTrinket(it))        cats.add("trinkets");
+    if (isPersonal(it))       cats.add("personal");
+    if (cats.size === 0)      cats.add("other");
+    return [...cats];
   };
 
-  const equipment   = items.filter(it => it.equipped);
-  const backpacks   = items.filter(isBackpack);
-  const compPouches = items.filter(isComponentPouch);
-  const attunement  = items.filter(it => it.attuned);
-  const other       = items.filter(it =>
-    !it.equipped && !it.attuned && !isBackpack(it) && !isComponentPouch(it));
+  const buckets = {
+    armor:           [], weapons:  [], magical:  [], trinkets: [],
+    food:            [], potions:  [], personal: [], componentPouch: [],
+    other:           []
+  };
+  for (const it of items) {
+    const cats = categoriesFor(it);
+    for (const c of cats) {
+      (buckets[c] || buckets.other).push(it);
+    }
+  }
 
   const mkAddCustomItem = () => ovAddBtn("+ Add Custom Item", () => openHomebrewForm({
     schema: ITEM_SCHEMA,
@@ -923,13 +1244,19 @@ function buildInventoryPane(store, state) {
     )
   );
 
+  const paneFor = (bucket) => ovPane(ovList(bucket.map(rowFor).filter(Boolean)), mkAddCustomItem());
+
   const subs = [
-    { id: "all",        label: "All",               build: () => el("div", {}, ovList(items.map(rowFor).filter(Boolean)), ovAddBar(mkAddCustomItem()), itemLibrary) },
-    { id: "equipment",  label: "Equipment",         build: () => ovPane(ovList(equipment.map(rowFor).filter(Boolean)), mkAddCustomItem()) },
-    { id: "backpack",   label: "Backpack",          build: () => ovPane(ovList(backpacks.map(rowFor).filter(Boolean)), mkAddCustomItem()) },
-    { id: "pouch",      label: "Component Pouch",   build: () => ovPane(ovList(compPouches.map(rowFor).filter(Boolean)), mkAddCustomItem()) },
-    { id: "attunement", label: "Attunement",        build: () => ovPane(ovList(attunement.map(rowFor).filter(Boolean)), mkAddCustomItem()) },
-    { id: "other",      label: "Other Possessions", build: () => ovPane(ovList(other.map(rowFor).filter(Boolean)), mkAddCustomItem()) },
+    { id: "all",            label: "All",                build: () => el("div", {}, ovList(items.map(rowFor).filter(Boolean)), ovAddBar(mkAddCustomItem()), itemLibrary) },
+    { id: "armor",          label: "All Armor",          build: () => paneFor(buckets.armor) },
+    { id: "weapons",        label: "Weapons",            build: () => paneFor(buckets.weapons) },
+    { id: "magical",        label: "Magical Items",      build: () => paneFor(buckets.magical) },
+    { id: "trinkets",       label: "Trinkets",           build: () => paneFor(buckets.trinkets) },
+    { id: "food",           label: "Food",               build: () => paneFor(buckets.food) },
+    { id: "potions",        label: "Potions",            build: () => paneFor(buckets.potions) },
+    { id: "personal",       label: "Personal Items",     build: () => paneFor(buckets.personal) },
+    { id: "componentPouch", label: "Component Pouch",    build: () => paneFor(buckets.componentPouch) },
+    { id: "other",          label: "Other Possessions",  build: () => paneFor(buckets.other) },
   ];
   return buildSubTabPane("inventory", subs, state);
 }
@@ -940,15 +1267,30 @@ function buildFeaturesPane(store, state) {
   const d = store.derived;
   const features = d.features || [];
 
+  // For class/race features, append the user-chosen variant in parentheses to the
+  // title — e.g. "Favored Enemy (Fiends, Undead, Beasts)". The variant is read from
+  // features.notes[id]; if the note's first line looks like a comma-separated
+  // variant list (no period, < 80 chars) we append it as a parenthesised suffix.
+  // Falls back to the plain feature name when no variant has been set.
+  const variantSuffix = (f) => {
+    const note = (store.doc.features?.notes?.[f.id] || "").trim();
+    if (!note) return "";
+    const firstLine = note.split(/\r?\n/)[0].trim();
+    if (!firstLine) return "";
+    if (firstLine.length > 80) return "";
+    if (/[.!?]/.test(firstLine)) return "";  // looks like prose, not a variant list
+    return ` (${firstLine})`;
+  };
+
   const featureRow = (f) => {
     const row = ovRow(
-      f.name + (f.level ? ` · L${f.level}` : "") + (f.kind === "custom" ? " ★" : ""),
+      f.name + variantSuffix(f) + (f.level ? ` · L${f.level}` : "") + (f.kind === "custom" ? " ★" : ""),
       (f.desc || "").slice(0, 120) + ((f.desc?.length || 0) > 120 ? "…" : ""),
       () => openFeatureDetail(f, { store })
     );
     const savedSource = store.doc.features?.sources?.[f.id] || "";
     bindTooltip(row, {
-      title: f.name,
+      title: f.name + variantSuffix(f),
       html: buildTooltipHtml({ baseText: f.desc, acquiredFrom: savedSource, userNotes: f.userNotes }),
       sourceRef: f.source,
       onMore: () => openFeatureDetail(f, { store })
@@ -956,10 +1298,37 @@ function buildFeaturesPane(store, state) {
     return row;
   };
 
-  const classFeats = features.filter(f => f.kind === "class");
-  const traits     = features.filter(f => f.kind === "race" || f.kind === "background");
-  const featsList  = features.filter(f =>
-    (doc.features?.featIds || []).includes(f.id) || /\bfeat\b/i.test(f.source || ""));
+  // Categorise features into the buckets the user wants. Auto-derived class/race/
+  // background features are reliable (they have stable kind tags). Custom features
+  // need source-text heuristics — combat feats and "special" traits both end up in
+  // features.custom, so we route them by the `source` field the import / homebrew
+  // form filled in.
+  const FEAT_SOURCES = /\bfeat\b|fighting style|crossbow expert|sharpshooter|great weapon master|polearm master|war caster|sentinel|lucky|alert|tough|magic initiate|tavern brawler|inspiring leader|martial adept|skilled|elemental adept|grappler|charger|mobile|defensive duelist|dual wielder|healer|heavy armor master|keen mind|linguist|mage slayer|medium armor master|observant|resilient|ritual caster|savage attacker|skill expert|piercer|slasher|crusher/i;
+  const SPECIAL_SOURCES = /monster slayer|gloom stalker|hunter conclave|beast master|fey wanderer|drakewarden|swarmkeeper|horizon walker|aberrant dragonmark|aberrant mind|dragonmark|dark gift|supernatural gift|epic boon|haunted one|cursed|gift of|pact of|otherworldly patron/i;
+
+  const isCombatFeat = (f) =>
+    (doc.features?.featIds || []).includes(f.id) ||
+    FEAT_SOURCES.test(f.source || "") ||
+    FEAT_SOURCES.test(f.name || "");
+
+  const isSpecial = (f) => f.kind === "custom" && (
+    SPECIAL_SOURCES.test(f.source || "") ||
+    SPECIAL_SOURCES.test(f.name || "")
+  );
+
+  const racialTraits   = features.filter(f => f.kind === "race");
+  const bgFeats        = features.filter(f => f.kind === "background");
+  // Class features come from the SRD class tables. Custom-imported subclass features
+  // go to "Special Traits", not Class Features.
+  const classFeatures  = features.filter(f => f.kind === "class");
+  const combatFeats    = features.filter(isCombatFeat);
+  // Special traits = anything custom that smells like a homebrew subclass / gift /
+  // dragonmark / dark gift, MINUS the combat feats (which have their own tab).
+  const specialTraits  = features.filter(f => isSpecial(f) && !isCombatFeat(f));
+  // Anything custom that didn't get picked up elsewhere lands in "Other custom" so
+  // nothing silently disappears.
+  const usedIds = new Set([...racialTraits, ...bgFeats, ...classFeatures, ...combatFeats, ...specialTraits].map(f => f.id));
+  const otherCustom = features.filter(f => f.kind === "custom" && !usedIds.has(f.id));
 
   const mkAddFeature = () => ovAddBtn("+ Add Custom Feature", () => openHomebrewForm({
     schema: FEATURE_SCHEMA,
@@ -969,13 +1338,124 @@ function buildFeaturesPane(store, state) {
     })
   }));
 
+  // The All tab gets the same subheaders as the dedicated sub-tabs, with each
+  // section alphabetised by feature name. Empty sections are skipped (unlike the
+  // Actions tab where we always show structure) because Features & Traits is
+  // dense enough that empty headers create more noise than signal.
+  const alphaFeats = (arr) => arr.slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const allGroupedRows = () => {
+    const groups = [
+      ["Racial Traits",   racialTraits],
+      ["Background",      bgFeats],
+      ["Class Features",  classFeatures],
+      ["Special Traits",  specialTraits],
+      ["Combat Feats",    combatFeats],
+      ["Other",           otherCustom]
+    ];
+    const parts = [];
+    for (const [heading, list] of groups) {
+      if (!list.length) continue;
+      parts.push(el("h4", { class: "ov-group-h" }, heading));
+      parts.push(ovList(alphaFeats(list).map(featureRow)));
+    }
+    return parts.length ? el("div", {}, ...parts) : ovEmpty("No features yet.");
+  };
+
   const subs = [
-    { id: "all",    label: "All",            build: () => ovPane(ovList(features.map(featureRow)), mkAddFeature()) },
-    { id: "class",  label: "Class Features", build: () => ovPane(ovList(classFeats.map(featureRow)), mkAddFeature()) },
-    { id: "traits", label: "Special Traits", build: () => ovPane(ovList(traits.map(featureRow)), mkAddFeature()) },
-    { id: "feats",  label: "Feats",          build: () => ovPane(ovList(featsList.map(featureRow)), mkAddFeature()) },
+    { id: "all",      label: "All",              build: () => el("div", {}, allGroupedRows(), ovAddBar(mkAddFeature())) },
+    { id: "racial",   label: "Racial Traits",    build: () => ovPane(ovList(alphaFeats(racialTraits).map(featureRow)),   mkAddFeature()) },
+    { id: "bg",       label: "Background",       build: () => ovPane(ovList(alphaFeats(bgFeats).map(featureRow)),        mkAddFeature()) },
+    { id: "class",    label: "Class Features",   build: () => ovPane(ovList(alphaFeats(classFeatures).map(featureRow)),  mkAddFeature()) },
+    { id: "special",  label: "Special Traits",   build: () => ovPane(ovList(alphaFeats(specialTraits).map(featureRow)),  mkAddFeature()) },
+    { id: "feats",    label: "Combat Feats",     build: () => ovPane(ovList(alphaFeats(combatFeats).map(featureRow)),    mkAddFeature()) },
+    ...(otherCustom.length ? [{ id: "other", label: "Other", build: () => ovPane(ovList(alphaFeats(otherCustom).map(featureRow)), mkAddFeature()) }] : []),
   ];
   return buildSubTabPane("features", subs, state);
+}
+
+/* ── Proficiencies pane ── */
+// Single home for everything proficiency-shaped: skills, weapons, armor, tools,
+// languages, saving-throw proficiencies. Each chip carries a hover tooltip with
+// its source ("Class — Ranger", "Race — Wood Elf", "Added manually") and any
+// user-supplied notes; clicking +Add lets the player record where a manual
+// proficiency came from so it shows up later on hover.
+function buildProficienciesPane(store, state) {
+  const d = store.derived;
+
+  // Each panel is a FACTORY so a fresh DOM tree is built per sub-tab render. The
+  // earlier implementation cached the panels and then appended each into both the
+  // All sub-pane and its dedicated sub-pane — appending a node a second time moves
+  // it from its first parent, which is why the All tab silently rendered empty.
+  const mkLang   = () => renderLanguagePanel(store);
+  const mkArmor  = () => renderProficiencyPanel(store, "Armor",   "armor",   d.armorProficiencyDetails);
+  const mkWeapon = () => renderProficiencyPanel(store, "Weapons", "weapons", d.weaponProficiencyDetails);
+  const mkTool   = () => renderProficiencyPanel(store, "Tools",   "tools",   d.toolProficiencyDetails);
+
+  // Saving-throw proficiencies — derived from class + manual extras. Render as
+  // chips per ability so the player can see at a glance which saves they're
+  // proficient in.
+  const mkSaves = () => {
+    const saveChips = [];
+    for (const k of ["str", "dex", "con", "int", "wis", "cha"]) {
+      if (d.saves[k].proficient) {
+        const src = (d.saves[k].sources || []).map(s => s.label).join(" · ");
+        saveChips.push(renderChip({
+          label: `${k.toUpperCase()} Save`,
+          sourceText: src,
+          notes: store.doc.proficiencies?.saveNotes?.[k] || "",
+          removable: false
+        }));
+      }
+    }
+    return el("div", { class: "panel" },
+      el("h3", {}, "Saving Throw Proficiencies"),
+      saveChips.length ? el("div", { class: "chips" }, ...saveChips) : el("p", { class: "muted" }, "None.")
+    );
+  };
+
+  // Skills panel — every skill that's proficient or expertise, as a chip with a
+  // hover tooltip explaining where the proficiency came from (Class skill choice,
+  // Race, Background, Expertise, item bonus, etc.).
+  const mkSkills = () => {
+    const skillChips = [];
+    const skills = d.skills || {};
+    for (const id of Object.keys(skills)) {
+      const s = skills[id];
+      if (s.level === "none") continue;
+      const tag = s.level === "expertise" ? " ★" : "";
+      const sourceText = (s.sources || []).map(x => x.label).join(" · ");
+      const notes = store.doc.proficiencies?.skillNotes?.[id] || "";
+      const mod = s.modifier;
+      const fmtVal = mod >= 0 ? `+${mod}` : `${mod}`;
+      skillChips.push(renderChip({
+        label: `${s.name}${tag} (${fmtVal})`,
+        sourceText,
+        notes,
+        removable: false
+      }));
+    }
+    return el("div", { class: "panel" },
+      el("h3", {}, "Skill Proficiencies"),
+      skillChips.length ? el("div", { class: "chips" }, ...skillChips) : el("p", { class: "muted" }, "None.")
+    );
+  };
+
+  const subs = [
+    {
+      id: "all",
+      label: "All",
+      build: () => el("div", { class: "prof-grid" },
+        mkSkills(), mkWeapon(), mkArmor(), mkTool(), mkLang(), mkSaves()
+      )
+    },
+    { id: "skills",    label: "Skills",    build: () => mkSkills() },
+    { id: "weapons",   label: "Weapons",   build: () => mkWeapon() },
+    { id: "armor",     label: "Armor",     build: () => mkArmor() },
+    { id: "tools",     label: "Tools",     build: () => mkTool() },
+    { id: "languages", label: "Languages", build: () => mkLang() },
+    { id: "saves",     label: "Saves",     build: () => mkSaves() }
+  ];
+  return buildSubTabPane("proficiencies", subs, state);
 }
 
 /* ── Background pane ── */
@@ -1566,14 +2046,41 @@ function renderSlotTracker(store, slots) {
       }).filter(Boolean)
     : [];
 
+  // Concentrating toggle — single bit on the doc the player flips when they cast a
+  // concentration spell. Surfaced inside the slots panel as a checkbox so it lives
+  // next to slot tracking, where players actually look during combat.
+  const concentrating = !!doc.spellcasting.concentrating;
+  const concentratingOn = doc.spellcasting.concentratingOn || "";
+  const concentrationToggle = el("div", { class: "slot-row slot-row--concentration" },
+    el("label", { class: "slot-row__label", style: { display: "flex", alignItems: "center", gap: "var(--sp-1)", cursor: "pointer" } },
+      el("input", {
+        type: "checkbox",
+        checked: concentrating,
+        onchange: e => store.update(x => {
+          x.spellcasting.concentrating = !!e.target.checked;
+          if (!e.target.checked) x.spellcasting.concentratingOn = "";
+        })
+      }),
+      el("span", {}, "Concentrating")
+    ),
+    el("input", {
+      type: "text",
+      placeholder: "(spell name — optional)",
+      value: concentratingOn,
+      disabled: !concentrating,
+      style: { flex: "1", padding: "4px 8px", background: "var(--c-bg-0)", border: "1px solid var(--c-border)", color: "var(--c-text)", borderRadius: "var(--r-sm)", fontFamily: "inherit", fontSize: "var(--fs-sm)" },
+      onchange: e => store.update(x => { x.spellcasting.concentratingOn = e.target.value; })
+    })
+  );
+
   return el("div", { class: "panel" },
     el("div", { class: "panel__header" },
       el("h3", {}, "Spell Slots"),
       el("button", { class: "btn btn--sm", onclick: () => openConfigureSlotsModal(store, slots) }, "Configure")
     ),
     rows.length > 0
-      ? el("div", {}, ...rows)
-      : el("p", { class: "muted" }, "No spell slots. Click Configure to set them manually.")
+      ? el("div", {}, ...rows, concentrationToggle)
+      : el("div", {}, el("p", { class: "muted" }, "No spell slots. Click Configure to set them manually."), concentrationToggle)
   );
 }
 
@@ -1620,6 +2127,60 @@ function openConfigureSlotsModal(store, currentSlots) {
       if (Number.isFinite(v) && v > 0) newOverrides[String(lvl)] = v;
     }
     store.update(x => { x.spellcasting.slotMaxOverrides = newOverrides; });
+    m.close();
+  });
+}
+
+/**
+ * Per-item category editor. Items can live in multiple categories at once — e.g.
+ * a Cloak of Protection is both Armor and a Magical Item. The popover shows a
+ * checkbox per category; saving writes `it.categories` (array). Unchecking
+ * everything resets to heuristic categorisation by clearing both `it.categories`
+ * and the legacy `it.category` field.
+ */
+function openItemCategoryPopover(store, it, anchorEl, labels, computeCurrent) {
+  const current = new Set(computeCurrent(it));
+  const items = Object.entries(labels);
+
+  const grid = el("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 12px", marginTop: "var(--sp-2)" } });
+  const checks = {};
+  for (const [id, label] of items) {
+    checks[id] = el("input", { type: "checkbox", checked: current.has(id) });
+    grid.append(el("label", { style: { display: "flex", alignItems: "center", gap: "var(--sp-1)", fontSize: "var(--fs-sm)", cursor: "pointer" } }, checks[id], el("span", {}, label)));
+  }
+
+  const body = el("div",
+    el("p", { class: "muted", style: { marginBottom: "var(--sp-2)", fontSize: "var(--fs-xs)" } },
+      "Pick one or more categories. The item appears in every selected list. Uncheck everything to fall back to automatic categorisation."),
+    grid
+  );
+
+  const saveBtn   = el("button", { class: "btn btn--primary" }, "Save");
+  const clearBtn  = el("button", { class: "btn btn--ghost" }, "Reset to Auto");
+  const cancelBtn = el("button", { class: "btn btn--ghost" }, "Cancel");
+  const m = openModal({ title: "Categorize Item", body, footer: [cancelBtn, clearBtn, saveBtn] });
+
+  cancelBtn.addEventListener("click", () => m.close());
+  clearBtn.addEventListener("click", () => {
+    store.update(x => {
+      const target = x.equipment.items.find(r => r.instanceId === it.instanceId);
+      if (target) { delete target.categories; delete target.category; }
+    });
+    m.close();
+  });
+  saveBtn.addEventListener("click", () => {
+    const picked = items.map(([id]) => id).filter(id => checks[id].checked);
+    store.update(x => {
+      const target = x.equipment.items.find(r => r.instanceId === it.instanceId);
+      if (!target) return;
+      if (picked.length === 0) {
+        delete target.categories;
+        delete target.category;
+      } else {
+        target.categories = picked;
+        delete target.category; // clean up legacy single-string field
+      }
+    });
     m.close();
   });
 }

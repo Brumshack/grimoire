@@ -46,8 +46,7 @@ UI components render from { store.doc, store.derived }
 ### Key architectural rules
 
 - **Derived stats are never persisted.** AC, skill modifiers, spell DC, etc. are always recomputed by `deriveAll()` from the raw document. Only the raw character JSON is saved.
-- **SRD 5.1 only** (OGL 1.0a). All rule data is hand-authored static ES modules under `js/data/`. No API calls, no fetch at runtime.
-- **One subclass per class** in the data — the only subclass included for each class is the one published in the SRD.
+- **SRD 5.1 first, with named exceptions.** All rule data is hand-authored static ES modules under `js/data/`. No API calls, no fetch at runtime. The default subclass per class is the SRD one; additional subclasses (currently: **Monster Slayer Conclave** for Ranger from XGE) live alongside it in `js/data/classes.js`. Non-SRD backgrounds (currently: **Haunted One** from CoS / Van Richten's) live in `js/data/backgrounds.js`. Add more here rather than as `features.custom[]` once a homebrew subclass / background sees real campaign use.
 - **Schema versioning**: every character doc has `schemaVersion` (currently **4**). Bumping it requires:
   1. Incrementing `SCHEMA_VERSION` in `js/engine/characterFactory.js`
   2. Adding a migration function keyed by the *old* version in `js/engine/migrations.js`
@@ -374,6 +373,22 @@ Any `equipment.items[]` entry where **`equipped: true` AND `custom.type === "wea
 
 **Rule:** if the real attack lives in `customAttacks`, set the item's `custom.type = "gear"` and `equipped = false` so it is tracked as owned but doesn't create a phantom row. Examples: ammunition (Silver Bolts), items whose attack stats are fully overridden in customAttacks (Leo Deliznia's Silver Crossbow).
 
+### Actions tab structure (April 2026)
+
+The Actions main tab has been reorganised. Sub-tabs:
+
+- **All** — every actionable thing the character has, broken into subheaders (Weapon Attacks, Spell Attacks, Other Actions, Spell Bonus Actions, Other Bonus Actions, Spell Reactions, Other Reactions, Other). Each section is alphabetised internally.
+- **Action** — combines what used to be Attack + Action. Subheaders: Weapon Attacks / Spell Attacks / Other Actions. Followed by the basic D&D actions cheat sheet.
+- **Bonus Action** — Spell Bonus Actions / Other Bonus Actions. Followed by basic bonus actions cheat sheet.
+- **Reaction** — Spell Reactions / Other Reactions. Followed by basic reactions cheat sheet.
+- **Other** — custom-action records the user typed with `actionType: "other"`.
+- **Limited Use** — feature-records whose `desc` mentions per-rest charges.
+
+The categorisation comes from `categorisedPane(groups, addBtns, cheatTitle, cheatRows)` in `buildActionsPane`. Empty subgroups still render their header with an em-dash placeholder so the structure is always visible.
+
+### Combat feats are filtered out of action lists
+A combat feat like Crossbow Expert mentions "you can use a bonus action to attack with a hand crossbow" in its description, so the substring match `\bbonus action\b` would put it under Bonus Action. We don't want that — those feats belong under Features & Traits → Combat Feats. The `isCombatFeatLike(f)` predicate (in `buildActionsPane`) keeps the Action / Bonus Action / Reaction lists clean by excluding any feature whose name or `source` matches a known feat keyword (Crossbow Expert, Sharpshooter, Sentinel, etc.) or fighting style.
+
 ---
 
 ## `ovRow` — 4th argument (actions column)
@@ -388,7 +403,9 @@ ovRow("Feature Name", "Source", () => openDetail(), [editBtn(), deleteBtn()])
 
 ## Spell slot tracker
 
-`renderSlotTracker(store, slots)` is defined in `sheet.js` (~line 1530) and is **fully wired into `buildSpellsPane`** — it renders above the sub-tabs in the Spells overview pane. The "Configure" button opens `openConfigureSlotsModal`, which reads/writes `doc.spellcasting.slotMaxOverrides`.
+`renderSlotTracker(store, slots)` is defined in `sheet.js` and renders inside the **Slots** sub-tab of the Spells pane (the panel is no longer above the sub-tab bar). The "Configure" button opens `openConfigureSlotsModal`, which reads/writes `doc.spellcasting.slotMaxOverrides`.
+
+The tracker also includes a **Concentrating** toggle (checkbox + free-text spell name) that writes to `doc.spellcasting.concentrating` (boolean) and `doc.spellcasting.concentratingOn` (string). Use this during combat to track which concentration spell is active; the value is displayed as part of slot tracking but is not (yet) consulted by derived stats.
 
 Use `slotMaxOverrides` for any character whose spell slots don't follow the standard class table (e.g. half-casters with atypical distributions, multiclass, or magic items that grant extra slots):
 
@@ -397,6 +414,33 @@ Use `slotMaxOverrides` for any character whose spell slots don't follow the stan
 ```
 
 Magic item save bonuses have no dedicated schema field — use `proficiencies.saveOverrides` with the final computed value and explain the math in `proficiencies.saveNotes`.
+
+### Spell tile presentation (April 2026)
+Ritual and Concentration are no longer separate sub-tabs in the Spells pane. Both qualities are shown directly on each spell row's meta line — e.g. `evocation · 1 action · Concentration` or `divination · 1 minute · Ritual`. The earlier single-letter `· C` / `· R` markers were replaced because users found them illegible.
+
+## Spellcasting quick panel — auto-derived breakdowns
+`renderSpellcastingQuick` builds a tooltip for Save DC / Attack / Ability that **always** explains why the number is the number, even without saved metadata. The breakdown ("Computed: 8 + Prof 5 + WIS +4 = 17") is derived from current ability mods + prof bonus + override and stitched into the tooltip's `acquiredFrom` slot. Any user-supplied `spellcasting.statSources[key]` overrides the auto string. User-supplied `spellcasting.statNotes[key]` is rendered separately (under "Notes").
+
+## Inventory — multi-category items
+An item can live in **multiple** inventory buckets. The override is `it.categories: string[]`; the legacy single-string `it.category` is still respected for back-compat. If neither override is set, heuristics (name regex, type, magical flag) decide a primary category and may auto-add `magical` so the same Cloak of Protection appears in both Armor and Magical Items.
+
+The per-item ⚑ button in inventory rows opens `openItemCategoryPopover` — a checkbox-per-category modal. Saving writes `it.categories`; "Reset to Auto" clears both fields and falls back to heuristics.
+
+## Class-feature variant labels
+Class features that ask the player to pick a variant (Favored Enemy, Natural Explorer, Fighting Style, Ranger Archetype) display the chosen variant in their title. The pattern is to write the variant on the FIRST LINE of `features.notes[featureId]` (no trailing punctuation, < 80 chars); the sheet appends it as `Feature Name (Variant)` automatically.
+
+Example:
+```json
+"features": {
+  "notes": {
+    "class:ranger:favored-enemy":    "Fiends, Undead, Beasts\n\n+2 damage to all three types …",
+    "class:ranger:natural-explorer": "Forest, Underdark\n\nDoubled prof on INT/WIS …",
+    "class:ranger:fighting-style":   "Archery\n\n+2 to ranged attack rolls …"
+  }
+}
+```
+
+The full note (including content after `\n\n`) is still shown in the hover tooltip. Implementation: `variantSuffix(f)` in `buildFeaturesPane`.
 
 ---
 
@@ -454,6 +498,6 @@ The vault rarely records `equipped: true` explicitly. Apply these rules:
 
 ## Phased delivery
 
-- **Phase 1 (done):** Roster (nested tab-card: Roster/Library/Guide), creator (standard array), single-page character sheet with overview tab-card (6 main tabs: Actions, Spells, Inventory, Features & Traits, Background, Codex), export/import, full stat overrides, custom spells/items/features/attacks (add buttons in every sub-pane), provenance tooltips on all tab-card rows (hover shows description + source + notes + More button), source+notes on everything (per-stat notes/sources in override popovers), always-on inline editing (no edit-mode toggle), "Existing Character" quick-entry flow (name + level → blank sheet), identity editing from sheet header (class/race/alignment/level dropdowns), languages/proficiencies editable, Codex embedded as tab with 14 sections (Hero, Fellowship, Session Log, Quests, Side Quests, People, Places, Maps, Factions, Gods & Faiths, Bestiary, History, World Lore, Journal) in lined-parchment style
+- **Phase 1 (done):** Roster (nested tab-card: Roster/Library/Guide), creator (standard array), single-page character sheet with overview tab-card (7 main tabs: Actions, Spells, Inventory, Features & Traits, Proficiencies, Background, Codex), export/import, full stat overrides, custom spells/items/features/attacks (add buttons in every sub-pane), provenance tooltips on all tab-card rows (hover shows description + source + notes + More button), source+notes on everything (per-stat notes/sources in override popovers), always-on inline editing (no edit-mode toggle), "Existing Character" quick-entry flow (name + level → blank sheet), identity editing from sheet header (class/race/alignment/level dropdowns), languages/proficiencies editable, Codex embedded as tab with 14 sections (Hero, Fellowship, Session Log, Quests, Side Quests, People, Places, Maps, Factions, Gods & Faiths, Bestiary, History, World Lore, Journal) in lined-parchment style
 - **Phase 2:** Level-up flow, conditions tracker with rule tooltips, point buy ability scores, action economy from class features (Second Wind, etc.)
 - **Phase 3:** Multiclassing, print/PDF view, service worker for offline install, dice roll animations
