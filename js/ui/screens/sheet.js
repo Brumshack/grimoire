@@ -670,10 +670,6 @@ function buildActionsPane(store, state) {
   const bonusFeats    = features.filter(f => matchBonus(f)    && !isCombatFeatLike(f));
   const reactionFeats = features.filter(f => matchReaction(f) && !isCombatFeatLike(f));
   const otherLimited  = features.filter(f => /\buses?\b.*(per|\/)\s*(short|long) rest|\b(\d+)\s*\/\s*(short|long) rest/i.test(f.desc || ""));
-  const limitedSpells = allSpells.filter(s => {
-    const txt = s.description || s.desc || "";
-    return /\b\d+\s*(charges?|uses?)\b|\bper (dawn|day)\b|\bonce per (short|long) rest\b/i.test(txt);
-  });
 
   // ── Spells, classified by casting time ──
   // Pull every spell the character knows (SRD + custom). castingTime drives bucket:
@@ -682,9 +678,14 @@ function buildActionsPane(store, state) {
   //   "1 reaction"      → reaction list (this is why Shield wasn't appearing — the
   //                       pane previously iterated only features.desc, not spells)
   const allSpells = collectKnownSpells(doc);
-  const spellAct  = allSpells.filter(s => /\b1?\s*action\b/i.test(s.castingTime || "") && !/bonus/i.test(s.castingTime || "") && !/reaction/i.test(s.castingTime || ""));
+  const spellAct      = allSpells.filter(s => /\b1?\s*action\b/i.test(s.castingTime || "") && !/bonus/i.test(s.castingTime || "") && !/reaction/i.test(s.castingTime || ""));
   const spellBonus    = allSpells.filter(s => /bonus action/i.test(s.castingTime || ""));
   const spellReaction = allSpells.filter(s => /reaction/i.test(s.castingTime || ""));
+  // Spells with a fixed charge pool (not spell slots) — shown in Limited Use tab.
+  const limitedSpells = allSpells.filter(s => {
+    const txt = s.description || s.desc || "";
+    return /\b\d+\s*(charges?|uses?)\b|\bper (dawn|day)\b|\bonce per (short|long) rest\b/i.test(txt);
+  });
   // Attack-shaped spells = ones whose description implies a roll-to-hit or save-for-damage.
   // Custom spells use `desc`; SRD spells use `description` — always check both.
   const isAttackSpell = (s) => {
