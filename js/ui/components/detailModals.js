@@ -33,7 +33,7 @@ export function openSpellDetail(spell, opts = {}) {
     kv("Components", componentString(spell.components)),
     kv("Duration", spell.duration)
   ));
-  body.append(el("p", { html: escapeText(spell.description || "").replace(/\n\n/g, "</p><p>") }));
+  body.append(el("p", { html: escapeText(spell.description || spell.desc || "").replace(/\n\n/g, "</p><p>") }));
   if (spell.higherLevel) {
     body.append(el("h5", {}, "At higher levels"));
     body.append(el("p", {}, spell.higherLevel));

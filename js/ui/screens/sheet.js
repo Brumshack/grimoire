@@ -24,6 +24,7 @@ import { SPELLS, spellsByLevel } from "../../data/spells.js";
 import { ITEMS, listWeapons, listArmor, listGear } from "../../data/equipment.js";
 import { listRaces } from "../../data/races.js";
 import { CLASSES, CLASS_IDS } from "../../data/classes.js";
+import { BACKGROUNDS } from "../../data/backgrounds.js";
 
 export async function renderSheet(root, id) {
   clear(root);
@@ -669,6 +670,10 @@ function buildActionsPane(store, state) {
   const bonusFeats    = features.filter(f => matchBonus(f)    && !isCombatFeatLike(f));
   const reactionFeats = features.filter(f => matchReaction(f) && !isCombatFeatLike(f));
   const otherLimited  = features.filter(f => /\buses?\b.*(per|\/)\s*(short|long) rest|\b(\d+)\s*\/\s*(short|long) rest/i.test(f.desc || ""));
+  const limitedSpells = allSpells.filter(s => {
+    const txt = s.description || s.desc || "";
+    return /\b\d+\s*(charges?|uses?)\b|\bper (dawn|day)\b|\bonce per (short|long) rest\b/i.test(txt);
+  });
 
   // ── Spells, classified by casting time ──
   // Pull every spell the character knows (SRD + custom). castingTime drives bucket:
@@ -681,9 +686,9 @@ function buildActionsPane(store, state) {
   const spellBonus    = allSpells.filter(s => /bonus action/i.test(s.castingTime || ""));
   const spellReaction = allSpells.filter(s => /reaction/i.test(s.castingTime || ""));
   // Attack-shaped spells = ones whose description implies a roll-to-hit or save-for-damage.
-  // Heuristic: description contains "spell attack" OR "make a ranged/melee" OR damage dice pattern (NdM).
+  // Custom spells use `desc`; SRD spells use `description` — always check both.
   const isAttackSpell = (s) => {
-    const txt = `${s.description || ""} ${s.higherLevel || ""}`;
+    const txt = `${s.description || s.desc || ""} ${s.higherLevel || ""}`;
     return /\bspell attack\b/i.test(txt)
         || /\b(ranged|melee)\s+(spell\s+)?attack\b/i.test(txt)
         || /\b\d+d\d+\s+(damage|fire|cold|lightning|necrotic|psychic|radiant|thunder|acid|poison|force|bludgeoning|piercing|slashing)/i.test(txt);
@@ -781,14 +786,29 @@ function buildActionsPane(store, state) {
 
   const customAttackRows = customAttacks.map(customAttackRow);
 
+  // Helper: extract the primary damage expression from a spell's text.
+  // Returns e.g. "8d8 cold" or "3d8" — used on action tiles so players can see
+  // damage at a glance without opening the detail modal.
+  const spellDmgStr = (s) => {
+    if (s.damage) return s.damageType ? `${s.damage} ${s.damageType}` : s.damage;
+    const txt = s.description || s.desc || "";
+    const m = txt.match(/\b(\d+d\d+(?:[+\-]\d+)?)\s+(cold|fire|lightning|necrotic|psychic|radiant|thunder|acid|poison|force|bludgeoning|piercing|slashing)\b/i)
+           || txt.match(/\b(\d+d\d+(?:[+\-]\d+)?)\s+\w*\s*damage\b/i);
+    if (!m) return "";
+    return m[2] ? `${m[1]} ${m[2]}` : m[1];
+  };
+
   // Render a spell as an action row (clickable to open the spell detail modal).
   const spellRow = (s) => {
-    const meta = `${s.castingTime || ""} · ${s.range || "—"}${s.concentration ? " · C" : ""}${s.ritual ? " · R" : ""}`;
+    const dmg = spellDmgStr(s);
+    const txt = s.description || s.desc || "";
+    const meta = [s.castingTime || "", s.range || "—", dmg, s.concentration ? "Concentration" : "", s.ritual ? "Ritual" : ""].filter(Boolean).join(" · ");
     const row = ovRow(s.name + (s.custom ? " ★" : "") + " · spell", meta, () => openSpellDetail(s, { store }));
+    const tipDesc = txt.slice(0, 200) + (txt.length > 200 ? "…" : "");
     bindTooltip(row, {
       title: s.name,
       html: buildTooltipHtml({
-        baseText: `${meta}\n\n${(s.description || "").slice(0, 200)}${(s.description?.length || 0) > 200 ? "…" : ""}`,
+        baseText: `${meta}\n\n${tipDesc}`,
         acquiredFrom: doc.spellcasting?.spellSources?.[s.id] || s._acquiredFrom || "",
         userNotes: doc.spellcasting?.spellNotes?.[s.id] || s._userNotes || ""
       }),
@@ -835,24 +855,22 @@ function buildActionsPane(store, state) {
     ...rows[1].map(([n, d]) => cheatSheetRow(n, d))
   );
 
-  // Build a sub-pane that's split into NAMED CATEGORIES with sub-headers. Each
-  // section is alphabetised. Empty sections render an em-dash placeholder so the
-  // structure is always visible — this is the categorisation the user asked for
-  // ("Weapon Attack / Spell Attack / Other Actions" inside Action; "Spell Bonus
-  // Actions / Other Bonus Actions" inside Bonus Action; etc.)
+  // Build a sub-pane that's split into NAMED CATEGORIES with collapsible sub-headers.
+  // Each section is alphabetised. Empty sections render an em-dash placeholder.
   const alpha = (rows) => rows.slice().sort((a, b) => {
     const an = a?.querySelector?.(".ov-row__name")?.textContent || "";
     const bn = b?.querySelector?.(".ov-row__name")?.textContent || "";
     return an.localeCompare(bn);
   });
+  const collapsibleSection = (heading, rows) =>
+    el("details", { open: true, class: "ov-group-details" },
+      el("summary", { class: "ov-group-h ov-group-h--collapsible" }, heading),
+      rows.length ? ovList(alpha(rows)) : ovEmpty("—")
+    );
   const categorisedPane = (groups, addBtns = [], cheatTitle, cheatRows) => {
-    const parts = [];
-    for (const [heading, rows] of groups) {
-      parts.push(el("h4", { class: "ov-group-h" }, heading));
-      parts.push(rows.length ? ovList(alpha(rows)) : ovEmpty("—"));
-    }
+    const sections = groups.map(([heading, rows]) => collapsibleSection(heading, rows));
     return el("div", {},
-      el("div", {}, ...parts),
+      el("div", {}, ...sections),
       addBtns.length ? ovAddBar(...addBtns) : null,
       cheatRows ? cheatSheet([cheatTitle, cheatRows]) : null
     );
@@ -886,12 +904,16 @@ function buildActionsPane(store, state) {
   ];
 
   const subs = [
-    { id: "all",      label: "All",          build: () => categorisedPane(allGroups(),      [mkAddAttack(), mkAddAction()]) },
+    { id: "all",      label: "All",          build: () => categorisedPane(allGroups(), [mkAddAttack(), mkAddAction()],
+        "Basic D&D Actions", [...BASIC_ACTIONS, ...BASIC_BONUS_ACTIONS, ...BASIC_REACTIONS]) },
     { id: "action",   label: "Action",       build: () => categorisedPane(actionGroups(),   [mkAddAttack(), mkAddAction("action")],   "Basic D&D Actions",        BASIC_ACTIONS) },
     { id: "bonus",    label: "Bonus Action", build: () => categorisedPane(bonusGroups(),    [mkAddAction("bonusAction")],             "Basic D&D Bonus Actions",  BASIC_BONUS_ACTIONS) },
     { id: "reaction", label: "Reaction",     build: () => categorisedPane(reactionGroups(), [mkAddAction("reaction")],                "Basic D&D Reactions",      BASIC_REACTIONS) },
     { id: "other",    label: "Other",        build: () => ovPane(ovList(caOther.map(customActionRow)), mkAddAction("other")) },
-    { id: "limited",  label: "Limited Use",  build: () => ovPane(ovList(otherLimited.map(featureRow)), mkAddAction("other")) },
+    { id: "limited",  label: "Limited Use",  build: () => ovPane(
+        ovList([...otherLimited.map(featureRow), ...limitedSpells.map(spellRow)]),
+        mkAddAction("other")
+      ) },
   ];
   return buildSubTabPane("actions", subs, state);
 }
@@ -912,7 +934,11 @@ function collectKnownSpells(doc) {
     const ov = overrides[id];
     out.push(ov ? { ...base, ...ov, id } : base);
   }
-  for (const s of doc.spellcasting?.custom || []) out.push(s);
+  for (const s of doc.spellcasting?.custom || []) {
+    // Custom spells use `desc`; normalise to `description` so downstream
+    // code (isAttackSpell, spellRow tooltip, etc.) can use a single field.
+    out.push(s.description != null ? s : { ...s, description: s.desc || "" });
+  }
   return out;
 }
 
@@ -927,28 +953,56 @@ function buildSpellsPane(store, state) {
   const byLevel = hasCaster ? spellsByLevel(cls.id) : new Map();
 
   const spells = [];
+  const addedIds = new Set();
   if (hasCaster) {
     for (const lvl of byLevel.keys()) {
       for (const s of byLevel.get(lvl)) {
         if (known.has(s.id)) {
           const ov = overrides[s.id];
           spells.push(ov ? { ...s, ...ov, id: s.id } : s);
+          addedIds.add(s.id);
         }
       }
     }
   }
-  for (const s of doc.spellcasting.custom || []) spells.push(s);
+  // Include any known spells not in the class spell list — e.g. cantrips/spells
+  // granted by feats (Aberrant Dragonmark → Mage Hand, Shield) that don't appear
+  // in spellsByLevel("ranger") because they're not Ranger class spells.
+  for (const id of (doc.spellcasting.knownSpells || [])) {
+    if (!addedIds.has(id) && SPELLS[id]) {
+      const ov = overrides[id];
+      const base = SPELLS[id];
+      spells.push(ov ? { ...base, ...ov, id } : base);
+      addedIds.add(id);
+    }
+  }
+  for (const s of doc.spellcasting.custom || []) {
+    // Normalise desc → description so spellRow can use a single field.
+    spells.push(s.description != null ? s : { ...s, description: s.desc || "" });
+  }
 
   const sc = doc.spellcasting || {};
+
+  // Extract primary damage from a spell's text. Prefers explicit damage/damageType
+  // fields (set when editing in the form); falls back to regex on the description.
+  const spellDmgStr = (s) => {
+    if (s.damage) return s.damageType ? `${s.damage} ${s.damageType}` : s.damage;
+    const txt = s.description || s.desc || "";
+    const m = txt.match(/\b(\d+d\d+(?:[+\-]\d+)?)\s+(cold|fire|lightning|necrotic|psychic|radiant|thunder|acid|poison|force|bludgeoning|piercing|slashing)\b/i)
+           || txt.match(/\b(\d+d\d+(?:[+\-]\d+)?)\s+\w*\s*damage\b/i);
+    if (!m) return "";
+    return m[2] ? `${m[1]} ${m[2]}` : m[1];
+  };
+
   const spellRow = (s) => {
     const isCustom = !!s.custom;
-    // Title gets a star for homebrew. Concentration / Ritual flags moved to the meta
-    // line so the title stays clean and the badges read as plain English instead of
-    // single letters (the user wanted the word "Concentration" visible on the tile).
     const label = s.name + (isCustom ? " ★" : "");
+    const dmg = spellDmgStr(s);
+    // Meta line: school · casting time · damage (if any) · Concentration · Ritual
     const tags = [
       s.school || "",
       s.castingTime || "",
+      dmg,
       s.concentration ? "Concentration" : "",
       s.ritual ? "Ritual" : ""
     ].filter(Boolean);
@@ -959,12 +1013,14 @@ function buildSpellsPane(store, state) {
     if (s.components?.s) compParts.push("S");
     if (s.components?.m) compParts.push(`M${s.components.material ? ` (${s.components.material})` : ""}`);
     const compStr = compParts.join(", ") || "—";
+    // description field is authoritative; desc is the custom-spell alias
+    const descText = s.description || s.desc || "";
     const tipBase = [
       `Casting Time: ${s.castingTime || "—"}`,
       `Range: ${s.range || "—"}`,
       `Components: ${compStr}`,
       `Duration: ${s.duration || "—"}`
-    ].join(" · ") + (s.description ? "\n\n" + s.description.slice(0, 160) + (s.description.length > 160 ? "…" : "") : "");
+    ].join(" · ") + (descText ? "\n\n" + descText.slice(0, 200) + (descText.length > 200 ? "…" : "") : "");
     bindTooltip(row, {
       title: s.name,
       html: buildTooltipHtml({
@@ -1246,9 +1302,37 @@ function buildInventoryPane(store, state) {
 
   const paneFor = (bucket) => ovPane(ovList(bucket.map(rowFor).filter(Boolean)), mkAddCustomItem());
 
+  // Build the All tab with collapsible category sections. Each item appears under
+  // its first matching category only (to avoid showing it multiple times in the
+  // flat All view — per-category sub-tabs still show the full membership).
+  const BUCKET_ORDER = [
+    ["armor", "Armor"], ["weapons", "Weapons"], ["magical", "Magical Items"],
+    ["trinkets", "Trinkets"], ["potions", "Potions"], ["food", "Food"],
+    ["personal", "Personal Items"], ["componentPouch", "Component Pouch"], ["other", "Other Possessions"]
+  ];
+  const allGroupedInventory = () => {
+    const seen = new Set();
+    const sections = [];
+    for (const [key, label] of BUCKET_ORDER) {
+      const bucket = buckets[key];
+      if (!bucket.length) continue;
+      const rows = bucket.filter(it => {
+        if (seen.has(it.instanceId)) return false;
+        seen.add(it.instanceId);
+        return true;
+      }).map(rowFor).filter(Boolean);
+      if (!rows.length) continue;
+      sections.push(el("details", { open: true, class: "ov-group-details" },
+        el("summary", { class: "ov-group-h ov-group-h--collapsible" }, label),
+        ovList(rows)
+      ));
+    }
+    return sections.length ? el("div", {}, ...sections) : ovEmpty("No items yet.");
+  };
+
   const subs = [
-    { id: "all",            label: "All",                build: () => el("div", {}, ovList(items.map(rowFor).filter(Boolean)), ovAddBar(mkAddCustomItem()), itemLibrary) },
-    { id: "armor",          label: "All Armor",          build: () => paneFor(buckets.armor) },
+    { id: "all",            label: "All",                build: () => el("div", {}, allGroupedInventory(), ovAddBar(mkAddCustomItem()), itemLibrary) },
+    { id: "armor",          label: "Armor",              build: () => paneFor(buckets.armor) },
     { id: "weapons",        label: "Weapons",            build: () => paneFor(buckets.weapons) },
     { id: "magical",        label: "Magical Items",      build: () => paneFor(buckets.magical) },
     { id: "trinkets",       label: "Trinkets",           build: () => paneFor(buckets.trinkets) },
@@ -1266,6 +1350,8 @@ function buildFeaturesPane(store, state) {
   const doc = store.doc;
   const d = store.derived;
   const features = d.features || [];
+  // Look up the background data so we can label background features "(Background Name)"
+  const bgData = BACKGROUNDS[doc.background?.backgroundId] || null;
 
   // For class/race features, append the user-chosen variant in parentheses to the
   // title — e.g. "Favored Enemy (Fiends, Undead, Beasts)". The variant is read from
@@ -1298,6 +1384,26 @@ function buildFeaturesPane(store, state) {
     return row;
   };
 
+  // Background features get "(Background Name)" appended to the title so it's
+  // immediately clear which background granted the feature. E.g.:
+  //   "Heart of Darkness (Haunted One)"
+  const bgFeatureRow = (f) => {
+    const bgSuffix = bgData ? ` (${bgData.name})` : "";
+    const title = f.name + bgSuffix + (f.level ? ` · L${f.level}` : "");
+    const row = ovRow(title,
+      (f.desc || "").slice(0, 120) + ((f.desc?.length || 0) > 120 ? "…" : ""),
+      () => openFeatureDetail(f, { store })
+    );
+    const savedSource = store.doc.features?.sources?.[f.id] || "";
+    bindTooltip(row, {
+      title: f.name + bgSuffix,
+      html: buildTooltipHtml({ baseText: f.desc, acquiredFrom: savedSource || f.source, userNotes: f.userNotes }),
+      sourceRef: f.source,
+      onMore: () => openFeatureDetail(f, { store })
+    });
+    return row;
+  };
+
   // Categorise features into the buckets the user wants. Auto-derived class/race/
   // background features are reliable (they have stable kind tags). Custom features
   // need source-text heuristics — combat feats and "special" traits both end up in
@@ -1316,17 +1422,14 @@ function buildFeaturesPane(store, state) {
     SPECIAL_SOURCES.test(f.name || "")
   );
 
-  const racialTraits   = features.filter(f => f.kind === "race");
-  const bgFeats        = features.filter(f => f.kind === "background");
-  // Class features come from the SRD class tables. Custom-imported subclass features
-  // go to "Special Traits", not Class Features.
-  const classFeatures  = features.filter(f => f.kind === "class");
-  const combatFeats    = features.filter(isCombatFeat);
-  // Special traits = anything custom that smells like a homebrew subclass / gift /
-  // dragonmark / dark gift, MINUS the combat feats (which have their own tab).
-  const specialTraits  = features.filter(f => isSpecial(f) && !isCombatFeat(f));
-  // Anything custom that didn't get picked up elsewhere lands in "Other custom" so
-  // nothing silently disappears.
+  const racialTraits  = features.filter(f => f.kind === "race");
+  const bgFeats       = features.filter(f => f.kind === "background");
+  const classFeatures = features.filter(f => f.kind === "class");
+  // Special traits take priority over combat feats. Aberrant Dragonmark's source
+  // contains "feat" but the name/source matches SPECIAL_SOURCES — it should live
+  // under Special Traits, not Combat Feats.
+  const specialTraits = features.filter(f => isSpecial(f));
+  const combatFeats   = features.filter(f => isCombatFeat(f) && !isSpecial(f));
   const usedIds = new Set([...racialTraits, ...bgFeats, ...classFeatures, ...combatFeats, ...specialTraits].map(f => f.id));
   const otherCustom = features.filter(f => f.kind === "custom" && !usedIds.has(f.id));
 
@@ -1338,33 +1441,33 @@ function buildFeaturesPane(store, state) {
     })
   }));
 
-  // The All tab gets the same subheaders as the dedicated sub-tabs, with each
-  // section alphabetised by feature name. Empty sections are skipped (unlike the
-  // Actions tab where we always show structure) because Features & Traits is
-  // dense enough that empty headers create more noise than signal.
+  // All tab: collapsible sections per category, alphabetised within each.
+  // Empty sections are skipped (dense list — no value in showing empty headers).
   const alphaFeats = (arr) => arr.slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   const allGroupedRows = () => {
     const groups = [
-      ["Racial Traits",   racialTraits],
-      ["Background",      bgFeats],
-      ["Class Features",  classFeatures],
-      ["Special Traits",  specialTraits],
-      ["Combat Feats",    combatFeats],
-      ["Other",           otherCustom]
+      ["Racial Traits",  racialTraits,  featureRow],
+      ["Background",     bgFeats,       bgFeatureRow],
+      ["Class Features", classFeatures, featureRow],
+      ["Special Traits", specialTraits, featureRow],
+      ["Combat Feats",   combatFeats,   featureRow],
+      ["Other",          otherCustom,   featureRow]
     ];
-    const parts = [];
-    for (const [heading, list] of groups) {
+    const sections = [];
+    for (const [heading, list, rowFn] of groups) {
       if (!list.length) continue;
-      parts.push(el("h4", { class: "ov-group-h" }, heading));
-      parts.push(ovList(alphaFeats(list).map(featureRow)));
+      sections.push(el("details", { open: true, class: "ov-group-details" },
+        el("summary", { class: "ov-group-h ov-group-h--collapsible" }, heading),
+        ovList(alphaFeats(list).map(rowFn))
+      ));
     }
-    return parts.length ? el("div", {}, ...parts) : ovEmpty("No features yet.");
+    return sections.length ? el("div", {}, ...sections) : ovEmpty("No features yet.");
   };
 
   const subs = [
     { id: "all",      label: "All",              build: () => el("div", {}, allGroupedRows(), ovAddBar(mkAddFeature())) },
     { id: "racial",   label: "Racial Traits",    build: () => ovPane(ovList(alphaFeats(racialTraits).map(featureRow)),   mkAddFeature()) },
-    { id: "bg",       label: "Background",       build: () => ovPane(ovList(alphaFeats(bgFeats).map(featureRow)),        mkAddFeature()) },
+    { id: "bg",       label: "Background",       build: () => ovPane(ovList(alphaFeats(bgFeats).map(bgFeatureRow)),      mkAddFeature()) },
     { id: "class",    label: "Class Features",   build: () => ovPane(ovList(alphaFeats(classFeatures).map(featureRow)),  mkAddFeature()) },
     { id: "special",  label: "Special Traits",   build: () => ovPane(ovList(alphaFeats(specialTraits).map(featureRow)),  mkAddFeature()) },
     { id: "feats",    label: "Combat Feats",     build: () => ovPane(ovList(alphaFeats(combatFeats).map(featureRow)),    mkAddFeature()) },
@@ -2049,10 +2152,16 @@ function renderSlotTracker(store, slots) {
   // Concentrating toggle — single bit on the doc the player flips when they cast a
   // concentration spell. Surfaced inside the slots panel as a checkbox so it lives
   // next to slot tracking, where players actually look during combat.
+  // Layout: flex row — checkbox+label on the left (no-shrink), text input fills
+  // the remaining width. The slot-row grid is overridden with flex so the label
+  // text ("Concentrating on:") never overlaps the spell-name input.
   const concentrating = !!doc.spellcasting.concentrating;
   const concentratingOn = doc.spellcasting.concentratingOn || "";
-  const concentrationToggle = el("div", { class: "slot-row slot-row--concentration" },
-    el("label", { class: "slot-row__label", style: { display: "flex", alignItems: "center", gap: "var(--sp-1)", cursor: "pointer" } },
+  const concentrationToggle = el("div", {
+    class: "slot-row slot-row--concentration",
+    style: { display: "flex", alignItems: "center", gap: "var(--sp-2)", paddingTop: "var(--sp-2)", borderTop: "1px solid var(--c-border)" }
+  },
+    el("label", { style: { display: "flex", alignItems: "center", gap: "var(--sp-1)", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap", fontSize: "var(--fs-xs)", color: "var(--c-gold)", textTransform: "uppercase", letterSpacing: "0.1em" } },
       el("input", {
         type: "checkbox",
         checked: concentrating,
@@ -2061,14 +2170,13 @@ function renderSlotTracker(store, slots) {
           if (!e.target.checked) x.spellcasting.concentratingOn = "";
         })
       }),
-      el("span", {}, "Concentrating")
+      "Concentrating on:"
     ),
     el("input", {
       type: "text",
-      placeholder: "(spell name — optional)",
+      placeholder: "spell name (optional)",
       value: concentratingOn,
-      disabled: !concentrating,
-      style: { flex: "1", padding: "4px 8px", background: "var(--c-bg-0)", border: "1px solid var(--c-border)", color: "var(--c-text)", borderRadius: "var(--r-sm)", fontFamily: "inherit", fontSize: "var(--fs-sm)" },
+      style: { flex: "1", minWidth: 0, padding: "4px 8px", background: "var(--c-bg-0)", border: "1px solid var(--c-border)", color: "var(--c-text)", borderRadius: "var(--r-sm)", fontFamily: "inherit", fontSize: "var(--fs-sm)" },
       onchange: e => store.update(x => { x.spellcasting.concentratingOn = e.target.value; })
     })
   );

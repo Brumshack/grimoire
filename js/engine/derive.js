@@ -374,9 +374,15 @@ function computeAc(c, abilities, primaryClass) {
   const con = abilities.con.mod;
   const wis = abilities.wis.mod;
 
-  // Find equipped armor / shield
+  // Find equipped armor / shield; apply per-instance overrides so that editing
+  // an item's AC in the UI (stored in i.overrides.ac) is actually reflected here.
   const equipped = (c.equipment.items || []).filter(i => i.equipped);
-  const items = equipped.map(i => i.itemId ? ITEMS[i.itemId] : i.custom).filter(Boolean);
+  const items = equipped.map(i => {
+    const base = i.itemId ? ITEMS[i.itemId] : i.custom;
+    if (!base) return null;
+    if (i.overrides && Object.keys(i.overrides).length) return { ...base, ...i.overrides };
+    return base;
+  }).filter(Boolean);
   const armor = items.find(i => i.type === "armor" && i.armorType !== "shield");
   const shield = items.find(i => i.type === "armor" && i.armorType === "shield");
 

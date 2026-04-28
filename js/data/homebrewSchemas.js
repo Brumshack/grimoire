@@ -27,6 +27,8 @@ export const SPELL_SCHEMA = {
     { key: "duration", label: "Duration", type: "text", default: "Instantaneous" },
     { key: "concentration", label: "Concentration", type: "checkbox", default: false },
     { key: "ritual", label: "Ritual", type: "checkbox", default: false },
+    { key: "damage", label: "Damage Dice", type: "text", placeholder: "8d8" },
+    { key: "damageType", label: "Damage Type", type: "text", placeholder: "cold" },
     { key: "description", label: "Description", type: "textarea", required: true, rows: 6 },
     { key: "higherLevel", label: "At Higher Levels", type: "textarea", rows: 3 },
     // ── Personal tracking (stored in separate buckets, not in the spell record) ──
@@ -53,6 +55,8 @@ export const SPELL_SCHEMA = {
       duration: v.duration || "Instantaneous",
       concentration: !!v.concentration,
       ritual: !!v.ritual,
+      damage: v.damage || "",
+      damageType: v.damageType || "",
       description: v.description || "",
       higherLevel: v.higherLevel || "",
       classes: [],
@@ -116,6 +120,11 @@ export const ITEM_SCHEMA = {
     { key: "stealth", label: "Stealth Disadvantage?", type: "text", placeholder: "Disadvantage", showIf: (v) => v.type === "armor" },
     // Attunement
     { key: "attunement", label: "Requires Attunement", type: "checkbox", default: false },
+    // AC bonus — applies to player AC when item is equipped, regardless of item type.
+    // Armor items use the `ac` field above for base armor class; this field adds a
+    // flat bonus on top (e.g. Cloak of Protection +1, Shield +2 for a custom shield).
+    { key: "bonusAc", label: "AC Bonus (when equipped)", type: "number", default: 0, min: 0,
+      help: "Flat AC bonus granted while this item is equipped. Leave 0 for no AC bonus." },
     { key: "description", label: "Description", type: "textarea", rows: 5 },
     // ── Personal tracking ──
     { key: "_acquiredFrom", label: "Acquired From / Source", type: "text", placeholder: "Looted, purchased, DM granted…" },
@@ -147,12 +156,20 @@ export const ITEM_SCHEMA = {
       r.strReq = Number(v.strReq) || 0;
       r.stealth = v.stealth || "";
     }
+    // AC bonus field applies to all item types — stored in bonuses.ac so
+    // collectEquippedBonuses picks it up automatically.
+    const bonusAc = Number(v.bonusAc) || 0;
+    if (bonusAc !== 0) {
+      r.bonuses = r.bonuses || {};
+      r.bonuses.ac = bonusAc;
+    }
     return r;
   },
   disassemble(r) {
     return {
       ...r,
       propertiesStr: (r?.properties || []).join(", "),
+      bonusAc: r?.bonuses?.ac || 0,
       _acquiredFrom: r?._acquiredFrom || "",
       _userNotes: r?._userNotes || ""
     };

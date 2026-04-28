@@ -685,6 +685,28 @@ div.btn--edit-only { display: flex !important; }
 }
 .ov-group-h:first-child { margin-top: 0; }
 
+/* Collapsible section groups — <details> wrapping an <ov-group-h> summary */
+.ov-group-details { margin: 0; border: none; }
+.ov-group-details > summary.ov-group-h--collapsible {
+  list-style: none;      /* hide browser default triangle */
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  user-select: none;
+}
+.ov-group-details > summary.ov-group-h--collapsible::before {
+  content: "▾";
+  display: inline-block;
+  transition: transform 0.15s;
+  font-size: 0.7rem;
+  color: var(--c-gold);
+}
+.ov-group-details:not([open]) > summary.ov-group-h--collapsible::before {
+  transform: rotate(-90deg);
+}
+.ov-group-details > summary::-webkit-details-marker { display: none; }
+
 /* Basic D&D actions cheat sheet — shown beneath the character-specific list. */
 .ov-cheat { margin-top: var(--sp-3); }
 .ov-group-h--cheat { color: var(--c-text-mute); border-bottom-color: var(--c-bg-3); }
