@@ -290,7 +290,9 @@ The character sheet renders a single page — no top-level tab bar. Below the st
 
 **Actions · Spells · Inventory · Features & Traits · Background · Codex**
 
-Each main tab has sub-tabs (e.g. Spells: All / Cantrips / Level 1-9 / Ritual / Concentration). The active main tab and per-group active sub-tab are persisted on `state.overview = { main, sub: { [groupId]: activeSubId } }` so selections survive store-update rerenders.
+Each main tab has sub-tabs (e.g. Spells: Slots / All / Cantrips / Level 1-9 / Ritual / Concentration). The active main tab and per-group active sub-tab are persisted on `state.overview = { main, sub: { [groupId]: activeSubId } }` so selections survive store-update rerenders.
+
+**"All" sub-tab presence by main tab:** Actions — no All tab (Action / Bonus Action / Reaction / Limited Use). Spells — has All. Inventory — no All tab (starts at Armor). Features & Traits — no All tab (starts at Racial Traits). Proficiencies — has All.
 
 Tab wiring uses `initTabbedContainer(tabCard)` plus extra click listeners that write back to `state.overview`.
 
@@ -386,16 +388,16 @@ Any `equipment.items[]` entry where **`equipped: true` AND `custom.type === "wea
 
 ### Actions tab structure (April 2026)
 
-The Actions main tab has been reorganised. Sub-tabs:
+The Actions main tab has four sub-tabs (no "All" or "Other" tab):
 
-- **All** — every actionable thing the character has, broken into subheaders (Weapon Attacks, Spell Attacks, Other Actions, Spell Bonus Actions, Other Bonus Actions, Spell Reactions, Other Reactions, Other). Each section is alphabetised internally.
-- **Action** — combines what used to be Attack + Action. Subheaders: Weapon Attacks / Spell Attacks / Other Actions. Followed by the basic D&D actions cheat sheet.
-- **Bonus Action** — Spell Bonus Actions / Other Bonus Actions. Followed by basic bonus actions cheat sheet.
-- **Reaction** — Spell Reactions / Other Reactions. Followed by basic reactions cheat sheet.
-- **Other** — custom-action records the user typed with `actionType: "other"`.
-- **Limited Use** — feature-records whose `desc` mentions per-rest charges.
+- **Action** — single collapsible "Your Actions" section (open by default) containing all weapon attacks, custom attacks, attack spells, action-tagged features, and action-time spells, alphabetised. Add buttons sit inside the section. Below it: a collapsible "Basic D&D Actions" cheat sheet (closed by default).
+- **Bonus Action** — "Your Bonus Actions" (open) + "Basic D&D Bonus Actions" (closed).
+- **Reaction** — "Your Reactions" (open) + "Basic D&D Reactions" (closed).
+- **Limited Use** — "Your Limited Use" (open) containing features/spells with per-rest charge language.
 
-The categorisation comes from `categorisedPane(groups, addBtns, cheatTitle, cheatRows)` in `buildActionsPane`. Empty subgroups still render their header with an em-dash placeholder so the structure is always visible.
+Both the "Your X" sections and the cheat sheets use the same `collapsibleSection(title, rows, opts)` helper (in `buildActionsPane`), which renders a `<details class="ov-group-details">` with a gold `▾` arrow summary. Pass `opts.open: false` for closed-by-default; `opts.muted: true` for the dimmer cheat-sheet heading style; `opts.addBar: [btn, ...]` to embed add buttons inside the section.
+
+`buildSubTabPane` now gracefully falls back to `subs[0]` if the saved sub-tab ID doesn't match any current tab (prevents blank pane after a tab is removed).
 
 ### Combat feats are filtered out of action lists
 A combat feat like Crossbow Expert mentions "you can use a bonus action to attack with a hand crossbow" in its description, so the substring match `\bbonus action\b` would put it under Bonus Action. We don't want that — those feats belong under Features & Traits → Combat Feats. The `isCombatFeatLike(f)` predicate (in `buildActionsPane`) keeps the Action / Bonus Action / Reaction lists clean by excluding any feature whose name or `source` matches a known feat keyword (Crossbow Expert, Sharpshooter, Sentinel, etc.) or fighting style.

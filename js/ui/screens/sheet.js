@@ -578,7 +578,8 @@ function renderOverviewTabCard(store, state, rerender) {
 // Build a .main-pane with sub-tab bar + sub-panes. `subs` is [{id, label, build}]
 function buildSubTabPane(groupId, subs, state) {
   const ov = state.overview;
-  const current = ov.sub[groupId] || subs[0].id;
+  const saved = ov.sub[groupId];
+  const current = (saved && subs.some(s => s.id === saved)) ? saved : subs[0].id;
 
   const bar = el("div", { class: "sub-tab-bar" },
     ...subs.map(s => {
@@ -774,7 +775,6 @@ function buildActionsPane(store, state) {
 
   // Filter customActions by type (legacy records without actionType default to "action")
   const caByType = (type) => customActions.filter(a => (a.actionType || "action") === type);
-  const caOther  = customActions.filter(a => a.actionType === "other");
 
   const mkAddAttack = () => ovAddBtn("+ Add Attack", () => openHomebrewForm({
     schema: ATTACK_SCHEMA,
@@ -851,70 +851,68 @@ function buildActionsPane(store, state) {
     ["Ready (triggered)",  "When a trigger you set with the Ready action occurs, use your reaction to take the readied action."],
     ["Class / Spell Reaction", "Anything else that explicitly costs a reaction (e.g. Shield, Counterspell, Hellish Rebuke, Uncanny Dodge)."],
   ];
-  const cheatSheet = (rows) => el("div", { class: "ov-cheat" },
-    el("h4", { class: "ov-group-h ov-group-h--cheat" }, rows[0]),
-    ...rows[1].map(([n, d]) => cheatSheetRow(n, d))
-  );
-
-  // Build a sub-pane that's split into NAMED CATEGORIES with collapsible sub-headers.
-  // Each section is alphabetised. Empty sections render an em-dash placeholder.
   const alpha = (rows) => rows.slice().sort((a, b) => {
     const an = a?.querySelector?.(".ov-row__name")?.textContent || "";
     const bn = b?.querySelector?.(".ov-row__name")?.textContent || "";
     return an.localeCompare(bn);
   });
-  const collapsibleSection = (heading, rows) =>
-    el("details", { open: true, class: "ov-group-details" },
-      el("summary", { class: "ov-group-h ov-group-h--collapsible" }, heading),
-      rows.length ? ovList(alpha(rows)) : ovEmpty("—")
+
+  const collapsibleSection = (title, rows, opts = {}) =>
+    el("details", { class: "ov-group-details", ...(opts.open !== false ? { open: true } : {}) },
+      el("summary", { class: "ov-group-h ov-group-h--collapsible" + (opts.muted ? " ov-group-h--cheat" : "") }, title),
+      opts.addBar ? ovAddBar(...opts.addBar) : null,
+      rows.length ? ovList(rows) : ovEmpty(opts.emptyMsg || "—")
     );
-  const categorisedPane = (groups, addBtns = [], cheatTitle, cheatRows) => {
-    const sections = groups.map(([heading, rows]) => collapsibleSection(heading, rows));
+
+  const yourActionsPane = () => {
+    const rows = alpha([
+      ...weaponRows, ...customAttackRows,
+      ...attackSpells.map(spellRow),
+      ...actionFeats.map(featureRow),
+      ...nonAttackActionSpells.map(spellRow),
+      ...caByType("action").map(customActionRow),
+    ]);
     return el("div", {},
-      el("div", {}, ...sections),
-      addBtns.length ? ovAddBar(...addBtns) : null,
-      cheatRows ? cheatSheet([cheatTitle, cheatRows]) : null
+      collapsibleSection("Your Actions", rows, { addBar: [mkAddAttack(), mkAddAction("action")], emptyMsg: "No actions yet." }),
+      collapsibleSection("Basic D&D Actions", BASIC_ACTIONS.map(([n, d]) => cheatSheetRow(n, d)), { open: false, muted: true })
     );
   };
 
-  // Combined Action tab (Attack + Action merged): three categories.
-  const actionGroups = () => [
-    ["Weapon Attacks", [...weaponRows, ...customAttackRows]],
-    ["Spell Attacks",  attackSpells.map(spellRow)],
-    ["Other Actions",  [...actionFeats.map(featureRow), ...caByType("action").map(customActionRow), ...nonAttackActionSpells.map(spellRow)]]
-  ];
-  const bonusGroups = () => [
-    ["Spell Bonus Actions", spellBonus.map(spellRow)],
-    ["Other Bonus Actions", [...bonusFeats.map(featureRow), ...caByType("bonusAction").map(customActionRow)]]
-  ];
-  const reactionGroups = () => [
-    ["Spell Reactions", spellReaction.map(spellRow)],
-    ["Other Reactions", [...reactionFeats.map(featureRow), ...caByType("reaction").map(customActionRow)]]
-  ];
+  const yourBonusPane = () => {
+    const rows = alpha([
+      ...spellBonus.map(spellRow),
+      ...bonusFeats.map(featureRow),
+      ...caByType("bonusAction").map(customActionRow),
+    ]);
+    return el("div", {},
+      collapsibleSection("Your Bonus Actions", rows, { addBar: [mkAddAction("bonusAction")], emptyMsg: "No bonus actions yet." }),
+      collapsibleSection("Basic D&D Bonus Actions", BASIC_BONUS_ACTIONS.map(([n, d]) => cheatSheetRow(n, d)), { open: false, muted: true })
+    );
+  };
 
-  // The All tab gets the full set of category subheaders, alphabetised within each.
-  const allGroups = () => [
-    ["Weapon Attacks",      [...weaponRows, ...customAttackRows]],
-    ["Spell Attacks",       attackSpells.map(spellRow)],
-    ["Other Actions",       [...actionFeats.map(featureRow), ...caByType("action").map(customActionRow), ...nonAttackActionSpells.map(spellRow)]],
-    ["Spell Bonus Actions", spellBonus.map(spellRow)],
-    ["Other Bonus Actions", [...bonusFeats.map(featureRow), ...caByType("bonusAction").map(customActionRow)]],
-    ["Spell Reactions",     spellReaction.map(spellRow)],
-    ["Other Reactions",     [...reactionFeats.map(featureRow), ...caByType("reaction").map(customActionRow)]],
-    ["Other",               caOther.map(customActionRow)]
-  ];
+  const yourReactionPane = () => {
+    const rows = alpha([
+      ...spellReaction.map(spellRow),
+      ...reactionFeats.map(featureRow),
+      ...caByType("reaction").map(customActionRow),
+    ]);
+    return el("div", {},
+      collapsibleSection("Your Reactions", rows, { addBar: [mkAddAction("reaction")], emptyMsg: "No reactions yet." }),
+      collapsibleSection("Basic D&D Reactions", BASIC_REACTIONS.map(([n, d]) => cheatSheetRow(n, d)), { open: false, muted: true })
+    );
+  };
 
   const subs = [
-    { id: "all",      label: "All",          build: () => categorisedPane(allGroups(), [mkAddAttack(), mkAddAction()],
-        "Basic D&D Actions", [...BASIC_ACTIONS, ...BASIC_BONUS_ACTIONS, ...BASIC_REACTIONS]) },
-    { id: "action",   label: "Action",       build: () => categorisedPane(actionGroups(),   [mkAddAttack(), mkAddAction("action")],   "Basic D&D Actions",        BASIC_ACTIONS) },
-    { id: "bonus",    label: "Bonus Action", build: () => categorisedPane(bonusGroups(),    [mkAddAction("bonusAction")],             "Basic D&D Bonus Actions",  BASIC_BONUS_ACTIONS) },
-    { id: "reaction", label: "Reaction",     build: () => categorisedPane(reactionGroups(), [mkAddAction("reaction")],                "Basic D&D Reactions",      BASIC_REACTIONS) },
-    { id: "other",    label: "Other",        build: () => ovPane(ovList(caOther.map(customActionRow)), mkAddAction("other")) },
-    { id: "limited",  label: "Limited Use",  build: () => ovPane(
-        ovList([...otherLimited.map(featureRow), ...limitedSpells.map(spellRow)]),
-        mkAddAction("other")
-      ) },
+    { id: "action",   label: "Action",       build: yourActionsPane },
+    { id: "bonus",    label: "Bonus Action", build: yourBonusPane },
+    { id: "reaction", label: "Reaction",     build: yourReactionPane },
+    { id: "limited",  label: "Limited Use",  build: () => {
+        const rows = [...otherLimited.map(featureRow), ...limitedSpells.map(spellRow)];
+        return el("div", {},
+          collapsibleSection("Your Limited Use", rows, { addBar: [mkAddAction("other")], emptyMsg: "No limited use abilities yet." })
+        );
+      }
+    },
   ];
   return buildSubTabPane("actions", subs, state);
 }
@@ -1332,7 +1330,6 @@ function buildInventoryPane(store, state) {
   };
 
   const subs = [
-    { id: "all",            label: "All",                build: () => el("div", {}, allGroupedInventory(), ovAddBar(mkAddCustomItem()), itemLibrary) },
     { id: "armor",          label: "Armor",              build: () => paneFor(buckets.armor) },
     { id: "weapons",        label: "Weapons",            build: () => paneFor(buckets.weapons) },
     { id: "magical",        label: "Magical Items",      build: () => paneFor(buckets.magical) },
@@ -1466,7 +1463,6 @@ function buildFeaturesPane(store, state) {
   };
 
   const subs = [
-    { id: "all",      label: "All",              build: () => el("div", {}, allGroupedRows(), ovAddBar(mkAddFeature())) },
     { id: "racial",   label: "Racial Traits",    build: () => ovPane(ovList(alphaFeats(racialTraits).map(featureRow)),   mkAddFeature()) },
     { id: "bg",       label: "Background",       build: () => ovPane(ovList(alphaFeats(bgFeats).map(bgFeatureRow)),      mkAddFeature()) },
     { id: "class",    label: "Class Features",   build: () => ovPane(ovList(alphaFeats(classFeatures).map(featureRow)),  mkAddFeature()) },

@@ -707,7 +707,11 @@ div.btn--edit-only { display: flex !important; }
 }
 .ov-group-details > summary::-webkit-details-marker { display: none; }
 
-/* Basic D&D actions cheat sheet — shown beneath the character-specific list. */
+/* Basic D&D actions cheat sheet — collapsible, closed by default. */
+.ov-cheat-details { margin-top: var(--sp-3); }
+.ov-cheat-details > summary { list-style: none; cursor: pointer; }
+.ov-cheat-details > summary::-webkit-details-marker { display: none; }
+.ov-cheat-details .ov-cheat { margin-top: 0; }
 .ov-cheat { margin-top: var(--sp-3); }
 .ov-group-h--cheat { color: var(--c-text-mute); border-bottom-color: var(--c-bg-3); }
 .ov-row--cheat {
