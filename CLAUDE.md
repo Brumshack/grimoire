@@ -4,13 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Running the app
 
-No build step. Serve the project root over HTTP (ES modules block `file://`):
+No build step. Serve the project root over HTTP (ES modules block `file://`).
 
-```bash
-npx serve . --listen 8080
+**Always use the startup script** — it kills stale servers before starting, preventing stale-cache issues:
+
+```bat
+start-server.bat
 ```
 
 Then open `http://localhost:8080`.
+
+**If running manually** (e.g. from Claude's Bash tool), always pass the **full explicit path** — never `.` — and kill existing processes first:
+
+```bash
+# Kill anything on 8080 first
+npx serve "C:\Users\abrum\Andy\Claude Projects\Character Sheet 3.0\.claude\worktrees\exciting-grothendieck-be3f21" --listen 8080
+```
+
+**Why explicit paths matter:** Claude's background tasks spawn server processes that outlive each conversation. If multiple servers from different worktrees (or the main repo) are running, whichever grabbed port 8080 first wins — and it may be serving a stale/wrong branch. The startup script kills all of them before starting fresh.
 
 Before first run, vendor scripts must be present (one-time download):
 ```bash
